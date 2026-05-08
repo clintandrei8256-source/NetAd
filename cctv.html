@@ -1,0 +1,204 @@
+{% extends 'base.html' %}
+{% block title %}CCTV Monitor{% endblock %}
+{% block content %}
+
+<div style="margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+  <div style="font-family:var(--font-mono);font-size:12px;color:var(--muted);">
+    4 camera feeds — live stream via /video_feed when camera is connected
+  </div>
+  <div style="display:flex;gap:10px;">
+    <button class="btn btn-primary" onclick="toggleLayout()">⊞ Toggle Layout</button>
+    <button class="btn" onclick="location.reload()">↺ Refresh</button>
+  </div>
+</div>
+
+<div id="camera-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+
+  <!-- CAM-01: Real Flask feed -->
+  <div class="card" style="padding:0;overflow:hidden;">
+    <div style="padding:10px 14px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
+      <div>
+        <span style="font-family:var(--font-mono);font-size:11px;color:var(--accent);letter-spacing:2px;">CAM-01</span>
+        <span style="font-size:12px;color:var(--muted);margin-left:10px;">Main Entrance</span>
+      </div>
+      <span class="badge badge-success" style="animation:pulse 2s infinite;">● LIVE</span>
+    </div>
+    <div style="position:relative;background:#000;aspect-ratio:16/9;overflow:hidden;">
+      <img id="real-feed" src="/video_feed" style="width:100%;height:100%;object-fit:cover;display:block;"
+           onerror="showNoSignal('real-feed','no-signal-1')" />
+      <div id="no-signal-1" style="display:none;flex-direction:column;align-items:center;justify-content:center;position:absolute;inset:0;">
+        <div style="font-size:40px;opacity:0.2;">◉</div>
+        <div style="font-family:var(--font-mono);font-size:11px;color:var(--muted);margin-top:10px;letter-spacing:2px;">NO SIGNAL</div>
+      </div>
+      <div style="position:absolute;top:8px;left:8px;font-family:var(--font-mono);font-size:10px;color:rgba(0,212,255,0.8);background:rgba(0,0,0,0.5);padding:2px 8px;border-radius:2px;">
+        ● REC &nbsp; CAM-01
+      </div>
+      <div style="position:absolute;bottom:8px;right:8px;font-family:var(--font-mono);font-size:10px;color:rgba(0,212,255,0.5);" id="ts-1"></div>
+    </div>
+    <div style="padding:8px 14px;display:flex;justify-content:space-between;font-family:var(--font-mono);font-size:10px;color:var(--muted);">
+      <span>RES: 1080p</span><span>FPS: 30</span><span>MAIN ENTRANCE</span>
+    </div>
+  </div>
+
+  <!-- CAM-02 to CAM-04: Simulated feeds -->
+  {% for cam in [
+    {'id': 'CAM-02', 'loc': 'Server Room',  'idx': 2, 'status': 'LIVE'},
+    {'id': 'CAM-03', 'loc': 'Parking Area', 'idx': 3, 'status': 'LIVE'},
+    {'id': 'CAM-04', 'loc': 'Back Exit',    'idx': 4, 'status': 'OFFLINE'},
+  ] %}
+  <div class="card" style="padding:0;overflow:hidden;">
+    <div style="padding:10px 14px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
+      <div>
+        <span style="font-family:var(--font-mono);font-size:11px;color:var(--accent);letter-spacing:2px;">{{ cam.id }}</span>
+        <span style="font-size:12px;color:var(--muted);margin-left:10px;">{{ cam.loc }}</span>
+      </div>
+      {% if cam.status == 'LIVE' %}
+        <span class="badge badge-success" style="animation:pulse 2s infinite;">● LIVE</span>
+      {% else %}
+        <span class="badge badge-danger">✕ OFFLINE</span>
+      {% endif %}
+    </div>
+    <div style="position:relative;background:#000;aspect-ratio:16/9;overflow:hidden;">
+      {% if cam.status == 'LIVE' %}
+      <canvas id="canvas-{{ cam.idx }}" style="width:100%;height:100%;display:block;"></canvas>
+      <div style="position:absolute;top:8px;left:8px;font-family:var(--font-mono);font-size:10px;color:rgba(0,212,255,0.8);background:rgba(0,0,0,0.5);padding:2px 8px;border-radius:2px;">
+        ● REC &nbsp; {{ cam.id }}
+      </div>
+      <div style="position:absolute;bottom:8px;right:8px;font-family:var(--font-mono);font-size:10px;color:rgba(0,212,255,0.5);" id="ts-{{ cam.idx }}"></div>
+      {% else %}
+      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;min-height:160px;">
+        <div style="font-size:40px;opacity:0.2;">◉</div>
+        <div style="font-family:var(--font-mono);font-size:11px;color:var(--muted);margin-top:10px;letter-spacing:2px;">NO SIGNAL</div>
+      </div>
+      {% endif %}
+    </div>
+    <div style="padding:8px 14px;display:flex;justify-content:space-between;font-family:var(--font-mono);font-size:10px;color:var(--muted);">
+      <span>RES: 1080p</span><span>FPS: 30</span><span>{{ cam.loc | upper }}</span>
+    </div>
+  </div>
+  {% endfor %}
+
+</div>
+
+<!-- Connect Real Camera -->
+<div class="card mt">
+  <div class="card-title">// Connect IP Camera</div>
+  <p style="font-size:13px;color:var(--muted);margin-bottom:16px;font-family:var(--font-mono);">
+    Set your camera's RTSP/HTTP stream URL via the <code style="color:var(--accent);">CAMERA_SOURCE</code> environment variable, or enter it below for reference.
+  </p>
+  <div style="display:flex;gap:12px;flex-wrap:wrap;">
+    <input type="text" id="cam-url" placeholder="rtsp://192.168.1.100:554/stream  or  http://..."
+           style="flex:1;min-width:280px;padding:9px 14px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;color:var(--text);font-family:var(--font-mono);font-size:13px;outline:none;" />
+    <button class="btn btn-primary" onclick="connectCamera()">▶ Connect</button>
+  </div>
+  <div id="cam-msg" style="margin-top:10px;font-family:var(--font-mono);font-size:12px;display:none;"></div>
+  <p style="margin-top:12px;font-size:11px;color:var(--muted);font-family:var(--font-mono);">
+    Requires <strong style="color:var(--text);">opencv-python</strong> installed and Flask /video_feed route active.
+  </p>
+</div>
+
+<script>
+function showNoSignal(imgId, divId) {
+  document.getElementById(imgId).style.display = 'none';
+  const d = document.getElementById(divId);
+  d.style.display = 'flex';
+}
+
+// Animated canvas feed simulation
+function drawFeed(canvasId, tsId, camIndex) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+
+  function resize() {
+    canvas.width  = canvas.offsetWidth  || 640;
+    canvas.height = canvas.offsetHeight || 360;
+  }
+  resize();
+  window.addEventListener('resize', resize);
+
+  const palettes = [
+    ['#001a2e','#003344'],
+    ['#1a0a00','#2e1500'],
+    ['#0a1a00','#102800'],
+  ];
+  const [c1, c2] = palettes[camIndex % palettes.length];
+
+  function frame() {
+    const w = canvas.width, h = canvas.height;
+    const grad = ctx.createLinearGradient(0, 0, w, h);
+    grad.addColorStop(0, c1); grad.addColorStop(1, c2);
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, w, h);
+
+    // Noise
+    for (let i = 0; i < 60; i++) {
+      ctx.fillStyle = `rgba(0,212,255,${Math.random() * 0.025})`;
+      ctx.fillRect(Math.random()*w, Math.random()*h, Math.random()*3+1, Math.random()*2+1);
+    }
+    // Scanlines
+    for (let y = 0; y < h; y += 4) {
+      ctx.fillStyle = 'rgba(0,0,0,0.12)';
+      ctx.fillRect(0, y, w, 1);
+    }
+    // Moving detection boxes
+    const t = Date.now() / 1000;
+    ctx.strokeStyle = 'rgba(0,212,255,0.18)';
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 2; i++) {
+      const x = (Math.sin(t * 0.25 + i * 2.1) * 0.3 + 0.5) * w;
+      const y = (Math.cos(t * 0.18 + i * 1.7) * 0.2 + 0.55) * h;
+      ctx.strokeRect(x - 18, y - 28, 36, 56);
+      ctx.fillStyle = 'rgba(0,212,255,0.07)';
+      ctx.fillRect(x - 18, y - 28, 36, 56);
+    }
+    // Grid overlay
+    ctx.strokeStyle = 'rgba(0,212,255,0.04)';
+    ctx.lineWidth = 0.5;
+    for (let x = 0; x < w; x += 50) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,h); ctx.stroke(); }
+    for (let y = 0; y < h; y += 50) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(w,y); ctx.stroke(); }
+    // Corner brackets
+    ctx.strokeStyle = 'rgba(0,212,255,0.25)'; ctx.lineWidth = 1.5;
+    const br = 12;
+    [[10,10],[w-10,10],[10,h-10],[w-10,h-10]].forEach(([cx,cy]) => {
+      const sx = cx < w/2 ? 1 : -1, sy = cy < h/2 ? 1 : -1;
+      ctx.beginPath(); ctx.moveTo(cx,cy+sy*br); ctx.lineTo(cx,cy); ctx.lineTo(cx+sx*br,cy); ctx.stroke();
+    });
+    // Timestamp
+    const tsEl = document.getElementById(tsId);
+    if (tsEl) tsEl.textContent = new Date().toLocaleTimeString('en-PH', {hour12:false});
+    requestAnimationFrame(frame);
+  }
+  frame();
+}
+
+// Tick the real cam timestamp
+setInterval(() => {
+  const el = document.getElementById('ts-1');
+  if (el) el.textContent = new Date().toLocaleTimeString('en-PH', {hour12:false});
+}, 1000);
+
+drawFeed('canvas-2', 'ts-2', 0);
+drawFeed('canvas-3', 'ts-3', 1);
+
+let singleLayout = false;
+function toggleLayout() {
+  const grid = document.getElementById('camera-grid');
+  singleLayout = !singleLayout;
+  grid.style.gridTemplateColumns = singleLayout ? '1fr' : '1fr 1fr';
+}
+
+function connectCamera() {
+  const url = document.getElementById('cam-url').value.trim();
+  const msg = document.getElementById('cam-msg');
+  if (!url) return;
+  msg.style.display = 'block';
+  msg.style.color = 'var(--accent)';
+  msg.textContent = '⟳ Attempting to connect: ' + url;
+  setTimeout(() => {
+    msg.style.color = 'var(--accent2)';
+    msg.textContent = '✓ URL saved. Set CAMERA_SOURCE env variable in Railway and redeploy to activate.';
+  }, 1500);
+}
+</script>
+{% endblock %}

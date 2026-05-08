@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>NetAdmin — Login</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Exo+2:wght@300;400;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #080c10; --bg2: #0d1117; --panel: #0a1420;
+      --border: #1a2d3d; --accent: #00d4ff; --accent2: #00ff88;
+      --danger: #ff3b5c; --warn: #ffaa00; --text: #c8e0f0; --muted: #4a6070;
+      --font-mono: 'Share Tech Mono', monospace;
+      --font-main: 'Exo 2', sans-serif;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg); color: var(--text);
+      font-family: var(--font-main); min-height: 100vh;
+      display: flex; align-items: center; justify-content: center;
+      overflow: hidden; position: relative;
+    }
+    .grid-bg {
+      position: fixed; inset: 0;
+      background-image:
+        linear-gradient(rgba(0,212,255,0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0,212,255,0.03) 1px, transparent 1px);
+      background-size: 40px 40px; z-index: 0;
+    }
+    .grid-bg::after {
+      content: ''; position: absolute; inset: 0;
+      background: radial-gradient(ellipse at center, transparent 0%, var(--bg) 70%);
+    }
+    .scanline {
+      position: fixed; width: 100%; height: 2px;
+      background: linear-gradient(90deg, transparent, var(--accent), transparent);
+      opacity: 0.25; animation: scan 5s linear infinite; z-index: 1;
+    }
+    @keyframes scan { 0% { top: -2px; } 100% { top: 100%; } }
+
+    .login-wrap { position: relative; z-index: 10; width: 100%; max-width: 420px; padding: 20px; }
+    .login-header { text-align: center; margin-bottom: 32px; }
+    .login-logo {
+      font-family: var(--font-mono); font-size: 30px; color: var(--accent);
+      letter-spacing: 6px; text-shadow: 0 0 24px rgba(0,212,255,0.5);
+    }
+    .login-sub { font-size: 10px; color: var(--muted); letter-spacing: 4px; text-transform: uppercase; margin-top: 6px; }
+    .login-divider { display: flex; align-items: center; gap: 12px; margin-top: 16px; }
+    .login-divider::before, .login-divider::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+    .login-divider span { font-family: var(--font-mono); font-size: 10px; color: var(--muted); }
+
+    .login-card {
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 8px; padding: 32px; position: relative; overflow: hidden;
+    }
+    .login-card::before {
+      content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+      background: linear-gradient(90deg, transparent, var(--accent), transparent);
+    }
+
+    .access-label {
+      font-family: var(--font-mono); font-size: 11px; color: var(--accent);
+      letter-spacing: 3px; text-transform: uppercase; margin-bottom: 24px; text-align: center;
+    }
+
+    .form-group { margin-bottom: 18px; }
+    .form-group label {
+      display: block; font-size: 10px; color: var(--muted);
+      letter-spacing: 2px; text-transform: uppercase; margin-bottom: 7px;
+      font-family: var(--font-mono);
+    }
+    .input-wrap input {
+      width: 100%; padding: 11px 14px; background: rgba(0,0,0,0.3);
+      border: 1px solid var(--border); border-radius: 4px;
+      color: var(--text); font-family: var(--font-mono); font-size: 14px;
+      outline: none; transition: border-color .2s, box-shadow .2s;
+    }
+    .input-wrap input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(0,212,255,0.08); }
+
+    .error-msg {
+      background: rgba(255,59,92,0.1); border: 1px solid rgba(255,59,92,0.3);
+      border-radius: 4px; padding: 10px 14px;
+      font-family: var(--font-mono); font-size: 12px;
+      color: var(--danger); margin-bottom: 18px; letter-spacing: 0.5px;
+    }
+    .lockout-msg {
+      background: rgba(255,170,0,0.08); border: 1px solid rgba(255,170,0,0.3);
+      border-radius: 4px; padding: 12px 14px;
+      font-family: var(--font-mono); font-size: 12px;
+      color: var(--warn); margin-bottom: 18px; line-height: 1.7;
+    }
+
+    .login-btn {
+      width: 100%; padding: 12px; background: rgba(0,212,255,0.08);
+      border: 1px solid var(--accent); border-radius: 4px; color: var(--accent);
+      font-family: var(--font-mono); font-size: 13px; letter-spacing: 3px;
+      text-transform: uppercase; cursor: pointer; transition: all .2s; margin-top: 8px;
+    }
+    .login-btn:hover { background: rgba(0,212,255,0.15); box-shadow: 0 0 20px rgba(0,212,255,0.2); }
+    .login-btn:active { transform: scale(0.99); }
+
+    .register-link {
+      text-align: center; margin-top: 16px;
+      font-family: var(--font-mono); font-size: 10px; color: var(--muted);
+      letter-spacing: 1px;
+    }
+    .register-link a { color: var(--accent2); text-decoration: none; }
+    .register-link a:hover { text-decoration: underline; }
+
+    .login-footer {
+      text-align: center; margin-top: 20px;
+      font-family: var(--font-mono); font-size: 10px; color: var(--muted); letter-spacing: 1px;
+    }
+    .warning-text {
+      font-family: var(--font-mono); font-size: 9px; color: var(--muted);
+      text-align: center; margin-top: 14px; letter-spacing: 1px; line-height: 1.8;
+      border-top: 1px solid var(--border); padding-top: 14px;
+    }
+  </style>
+</head>
+<body>
+  <div class="grid-bg"></div>
+  <div class="scanline"></div>
+
+  <div class="login-wrap">
+    <div class="login-header">
+      <div class="login-logo">⬡ NETADMIN</div>
+      <div class="login-sub">Network Security Console</div>
+      <div class="login-divider"><span>SECURE ACCESS PORTAL</span></div>
+    </div>
+
+    <div class="login-card">
+      <div class="access-label">// Authentication Required</div>
+
+      {% if lockout_msg %}
+        <div class="lockout-msg">🔒 {{ lockout_msg }}</div>
+      {% elif error %}
+        <div class="error-msg">⚠ {{ error }}</div>
+      {% endif %}
+
+      {% if not lockout_msg %}
+      <form method="POST" autocomplete="off">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+        <div class="form-group">
+          <label>Username</label>
+          <div class="input-wrap">
+            <input type="text" name="username" placeholder="Enter username"
+                   required autocomplete="off" spellcheck="false"/>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Password</label>
+          <div class="input-wrap">
+            <input type="password" name="password" placeholder="Enter password" required/>
+          </div>
+        </div>
+
+        <button type="submit" class="login-btn">▶ Authenticate</button>
+      </form>
+      {% endif %}
+
+      <div class="register-link">
+        No account? <a href="/register">Register with Gmail →</a>
+      </div>
+
+      <div class="warning-text">
+        ⚠ AUTHORIZED PERSONNEL ONLY<br>
+        All login attempts are monitored and recorded.<br>
+        3 failed attempts will lock your account for 60 minutes.
+      </div>
+    </div>
+
+    <div class="login-footer">
+      NETADMIN v2.1 &nbsp;|&nbsp; ALL ACTIVITY LOGGED &nbsp;|&nbsp; CSRF PROTECTED
+    </div>
+  </div>
+</body>
+</html>

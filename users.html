@@ -1,0 +1,131 @@
+{% extends 'base.html' %}
+{% block title %}User Management{% endblock %}
+{% block content %}
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% for category, message in messages %}
+    <div style="background:{% if category=='error' %}rgba(255,59,92,0.1);border:1px solid rgba(255,59,92,0.3);color:var(--danger){% else %}rgba(0,255,136,0.08);border:1px solid rgba(0,255,136,0.25);color:var(--accent2){% endif %};
+         border-radius:4px;padding:10px 16px;margin-bottom:14px;
+         font-family:var(--font-mono);font-size:12px;letter-spacing:.5px;">
+      {{ message }}
+    </div>
+  {% endfor %}
+{% endwith %}
+
+<div class="grid-2">
+  <!-- User List -->
+  <div class="card" style="grid-column: 1 / -1;">
+    <div class="card-title">
+      // Registered Users
+      <span style="font-size:10px;color:var(--muted);font-family:var(--font-mono);">{{ users|length }} accounts</span>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Username / Gmail</th>
+          <th>Provider</th>
+          <th>Role</th>
+          <th>Status</th>
+          <th>Created (PST)</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for user in users %}
+        <tr>
+          <td class="ts">{{ user.id }}</td>
+          <td style="font-weight:600;">
+            {{ user.username }}
+            {% if user.username == 'admin@8080' %}
+              <span class="badge badge-info" style="margin-left:6px;">Protected</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if user.auth_provider == 'gmail' %}
+              <span class="badge badge-info">✉ Gmail</span>
+            {% else %}
+              <span class="badge badge-muted">⊙ Local</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if user.role == 'admin' %}
+              <span class="badge badge-danger">◈ Admin</span>
+            {% else %}
+              <span class="badge badge-info">● Viewer</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if user.is_active %}
+              <span class="badge badge-success">✓ Active</span>
+            {% else %}
+              <span class="badge badge-muted">✕ Disabled</span>
+            {% endif %}
+          </td>
+          <td class="ts">{{ user.created_at.strftime('%Y-%m-%d %H:%M') }} PST</td>
+          <td>
+            {% if user.username != 'admin@8080' %}
+            <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+              <!-- Role toggle -->
+              <form method="POST" action="/users/set_role/{{ user.id }}" style="display:inline;">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="role" value="{{ 'admin' if user.role == 'viewer' else 'viewer' }}">
+                <button type="submit" class="btn btn-sm {% if user.role == 'viewer' %}btn-warn{% else %}btn-info{% endif %}"
+                        onclick="return confirm('Set {{ user.username }} as {{ 'Admin' if user.role == 'viewer' else 'Viewer' }}?')">
+                  {{ '↑ Make Admin' if user.role == 'viewer' else '↓ Make Viewer' }}
+                </button>
+              </form>
+              <!-- Enable/Disable -->
+              <a href="/users/toggle/{{ user.id }}"
+                 class="btn btn-sm {% if user.is_active %}btn-warn{% else %}btn-success{% endif %}">
+                {% if user.is_active %}Disable{% else %}Enable{% endif %}
+              </a>
+              <!-- Delete -->
+              <a href="/users/delete/{{ user.id }}"
+                 onclick="return confirm('Delete user {{ user.username }}? This cannot be undone.')"
+                 class="btn btn-sm btn-danger">Delete</a>
+            </div>
+            {% else %}
+            <span style="font-family:var(--font-mono);font-size:10px;color:var(--muted);">—</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="7" style="color:var(--muted);text-align:center;padding:30px;">No users found.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Add User (admin manually) -->
+<div class="card mt">
+  <div class="card-title">// Add New User</div>
+  <form method="POST" action="/users/add" style="max-width:500px;">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="form-group">
+      <label>Username</label>
+      <input type="text" name="username" placeholder="Enter username" required autocomplete="off"/>
+    </div>
+    <div class="form-group">
+      <label>Password</label>
+      <input type="password" name="password" placeholder="Enter password" required/>
+    </div>
+    <div class="form-group">
+      <label>Gmail (optional)</label>
+      <input type="email" name="gmail" placeholder="user@gmail.com" autocomplete="off"/>
+    </div>
+    <div class="form-group">
+      <label>Role</label>
+      <select name="role">
+        <option value="viewer">Viewer</option>
+        <option value="admin">Admin</option>
+      </select>
+    </div>
+    <button type="submit" class="btn btn-success">+ Add User</button>
+  </form>
+</div>
+
+{% endblock %}

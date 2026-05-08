@@ -1,0 +1,67 @@
+{% extends 'base.html' %}
+{% block title %}Attack Logs{% endblock %}
+{% block content %}
+
+<div class="card">
+  <div class="card-title">
+    // Detected Attack Log — Security Events
+    <span style="font-size:10px;color:var(--muted);font-family:var(--font-mono);">
+      High &amp; Critical severity only
+    </span>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Attack Type</th>
+        <th>Source IP</th>
+        <th>Severity</th>
+        <th>Details</th>
+        <th>Timestamp</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for atk in attacks.items %}
+      <tr>
+        <td class="ts">{{ atk.id }}</td>
+        <td style="font-weight:600;color:var(--danger);">{{ atk.event_type }}</td>
+        <td class="ip">{{ atk.source_ip }}</td>
+        <td>
+          {% if atk.severity == 'critical' %}
+            <span class="badge badge-critical">⚡ Critical</span>
+          {% elif atk.severity == 'high' %}
+            <span class="badge badge-danger">▲ High</span>
+          {% elif atk.severity == 'medium' %}
+            <span class="badge badge-warn">● Medium</span>
+          {% else %}
+            <span class="badge badge-info">○ Low</span>
+          {% endif %}
+        </td>
+        <td style="font-size:12px;color:var(--muted);max-width:280px;">{{ atk.detail }}</td>
+        <td class="ts">{{ atk.logged_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+      </tr>
+      {% else %}
+      <tr>
+        <td colspan="6" style="color:var(--muted);text-align:center;padding:40px;">
+          No attacks recorded.
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {% if attacks.pages > 1 %}
+  <div class="pagination">
+    {% if attacks.has_prev %}
+      <a href="?page={{ attacks.prev_num }}" class="btn btn-sm">← Prev</a>
+    {% endif %}
+    <span>Page {{ attacks.page }} of {{ attacks.pages }}</span>
+    {% if attacks.has_next %}
+      <a href="?page={{ attacks.next_num }}" class="btn btn-sm">Next →</a>
+    {% endif %}
+  </div>
+  {% endif %}
+</div>
+
+{% endblock %}
