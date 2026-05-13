@@ -1,0 +1,148 @@
+{% extends 'base.html' %}
+{% block title %}CCTV Monitor{% endblock %}
+{% block content %}
+
+<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:16px;">
+  <div style="font-family:var(--font-mono);font-size:11px;color:var(--muted);letter-spacing:1px;">
+    LIVE CAMERA FEED &nbsp;·&nbsp; CCTV 1
+  </div>
+  <div style="display:flex;gap:8px;">
+    <button class="btn btn-sm" onclick="toggleFullscreen()">⛶ Fullscreen</button>
+    <button class="btn btn-sm" onclick="location.reload()">↺ Refresh</button>
+  </div>
+</div>
+
+<!-- PRIMARY CAMERA FEED -->
+<div class="card" style="padding:0;overflow:hidden;" id="cam-wrapper">
+  <div style="padding:10px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+    <div style="display:flex;align-items:center;gap:14px;">
+      <span style="font-family:var(--font-mono);font-size:12px;color:var(--accent);letter-spacing:2px;">CAM-01</span>
+      <span style="font-size:12px;color:var(--muted);">CCTV 1</span>
+      <span class="badge badge-success" style="animation:pulse 2s infinite;">● LIVE</span>
+    </div>
+    <div style="display:flex;gap:14px;font-family:var(--font-mono);font-size:10px;color:var(--muted);">
+      <span>RES: 1080p</span><span>FPS: 30</span><span id="cam-clock">--:--:--</span>
+    </div>
+  </div>
+
+  <div style="position:relative;background:#000;width:100%;aspect-ratio:16/9;max-height:72vh;overflow:hidden;">
+    <img id="real-feed" src="/video_feed"
+         style="width:100%;height:100%;object-fit:cover;display:block;"
+         onerror="showNoSignal()" />
+
+    <div id="no-signal" style="display:none;position:absolute;inset:0;flex-direction:column;align-items:center;justify-content:center;background:#000;">
+      <canvas id="static-canvas" style="position:absolute;inset:0;width:100%;height:100%;opacity:0.07;"></canvas>
+      <div style="position:relative;z-index:2;text-align:center;">
+        <div style="font-size:56px;opacity:0.12;margin-bottom:12px;">◉</div>
+        <div style="font-family:var(--font-mono);font-size:13px;color:var(--muted);letter-spacing:4px;">NO SIGNAL</div>
+        <div style="font-family:var(--font-mono);font-size:10px;color:var(--muted);opacity:0.4;margin-top:6px;">Camera offline or not connected</div>
+      </div>
+    </div>
+
+    <!-- HUD -->
+    <div style="position:absolute;top:10px;left:12px;font-family:var(--font-mono);font-size:11px;color:rgba(0,212,255,0.9);background:rgba(0,0,0,0.6);padding:3px 10px;border-radius:2px;letter-spacing:1px;">
+      ● REC &nbsp; CAM-01 &nbsp; CCTV 1
+    </div>
+    <div style="position:absolute;top:10px;right:12px;font-family:var(--font-mono);font-size:11px;color:rgba(0,212,255,0.7);background:rgba(0,0,0,0.6);padding:3px 10px;border-radius:2px;" id="hud-clock"></div>
+
+    <!-- Corner SVG brackets -->
+    <svg style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none;" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none">
+      <polyline points="0,20 0,0 20,0"   fill="none" stroke="rgba(0,212,255,0.35)" stroke-width="1.5"/>
+      <polyline points="100%,20 100%,0 calc(100% - 20),0" fill="none" stroke="rgba(0,212,255,0.35)" stroke-width="1.5"/>
+      <polyline points="0,calc(100% - 20) 0,100% 20,100%" fill="none" stroke="rgba(0,212,255,0.35)" stroke-width="1.5"/>
+      <polyline points="calc(100% - 20),100% 100%,100% 100%,calc(100% - 20)" fill="none" stroke="rgba(0,212,255,0.35)" stroke-width="1.5"/>
+    </svg>
+  </div>
+
+  <div style="padding:8px 16px;background:var(--bg2);display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;font-family:var(--font-mono);font-size:10px;color:var(--muted);">
+    <span>LOCATION: CCTV 1</span>
+    <span>CODEC: H.264 · MJPEG</span>
+    <span>STREAM: /video_feed</span>
+  </div>
+</div>
+
+<!-- Camera info + connect -->
+<div class="grid-2 mt">
+  <div class="card">
+    <div class="card-title">// Camera Status</div>
+    <table style="font-size:12px;">
+      <colgroup><col style="width:120px"/><col/></colgroup>
+      <tbody>
+        <tr><td class="ts" style="padding:8px 12px;">Camera ID</td>  <td style="padding:8px 12px;font-family:var(--font-mono);">CAM-01</td></tr>
+        <tr><td class="ts" style="padding:8px 12px;">Location</td>   <td style="padding:8px 12px;">CCTV 1</td></tr>
+        <tr><td class="ts" style="padding:8px 12px;">Resolution</td> <td style="padding:8px 12px;font-family:var(--font-mono);">1280×720 HD</td></tr>
+        <tr><td class="ts" style="padding:8px 12px;">Frame Rate</td> <td style="padding:8px 12px;font-family:var(--font-mono);">30 FPS</td></tr>
+        <tr><td class="ts" style="padding:8px 12px;">Status</td>     <td style="padding:8px 12px;"><span class="badge badge-success" id="status-badge">● Live</span></td></tr>
+        <tr><td class="ts" style="padding:8px 12px;">Source</td>     <td style="padding:8px 12px;font-family:var(--font-mono);font-size:11px;word-break:break-all;">CAMERA_SOURCE env</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <div class="card-title">// Connect IP Camera</div>
+    <p style="font-size:12px;color:var(--muted);margin-bottom:14px;font-family:var(--font-mono);line-height:1.7;">
+      Set <span style="color:var(--accent);">CAMERA_SOURCE</span> to your RTSP/HTTP stream URL and redeploy.
+    </p>
+    <div class="form-group">
+      <label>Stream URL</label>
+      <input type="text" id="cam-url" placeholder="rtsp://192.168.1.100:554/stream" autocomplete="off" spellcheck="false"/>
+    </div>
+    <button class="btn btn-primary" onclick="connectCamera()" style="width:100%;">▶ Save URL</button>
+    <div id="cam-msg" style="margin-top:10px;font-family:var(--font-mono);font-size:11px;display:none;line-height:1.6;"></div>
+    <p style="margin-top:12px;font-size:10px;color:var(--muted);font-family:var(--font-mono);">Requires <span style="color:var(--text);">opencv-python</span> installed.</p>
+  </div>
+</div>
+
+<script>
+function tickClock() {
+  const t = new Date().toLocaleTimeString('en-PH', {hour12:false});
+  const h = document.getElementById('hud-clock');
+  const c = document.getElementById('cam-clock');
+  if (h) h.textContent = t;
+  if (c) c.textContent = t;
+}
+tickClock(); setInterval(tickClock, 1000);
+
+function showNoSignal() {
+  const feed  = document.getElementById('real-feed');
+  const ns    = document.getElementById('no-signal');
+  const badge = document.getElementById('status-badge');
+  if (feed)  feed.style.display  = 'none';
+  if (ns)    ns.style.display    = 'flex';
+  if (badge) { badge.textContent = '✕ Offline'; badge.className = 'badge badge-danger'; }
+  startStatic();
+}
+
+function startStatic() {
+  const canvas = document.getElementById('static-canvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  function resize() { canvas.width = canvas.offsetWidth || 640; canvas.height = canvas.offsetHeight || 360; }
+  resize(); window.addEventListener('resize', resize);
+  (function draw() {
+    const w = canvas.width, h = canvas.height;
+    const img = ctx.createImageData(w, h);
+    for (let i = 0; i < img.data.length; i += 4) {
+      const v = Math.random() * 255 | 0;
+      img.data[i] = img.data[i+1] = img.data[i+2] = v; img.data[i+3] = 255;
+    }
+    ctx.putImageData(img, 0, 0); requestAnimationFrame(draw);
+  })();
+}
+
+function toggleFullscreen() {
+  const el = document.getElementById('cam-wrapper');
+  if (!document.fullscreenElement) el.requestFullscreen && el.requestFullscreen();
+  else document.exitFullscreen && document.exitFullscreen();
+}
+
+function connectCamera() {
+  const url = document.getElementById('cam-url').value.trim();
+  const msg = document.getElementById('cam-msg');
+  msg.style.display = 'block';
+  if (!url) { msg.style.color='var(--danger)'; msg.textContent='⚠ Please enter a stream URL.'; return; }
+  msg.style.color = 'var(--accent)'; msg.textContent = '⟳ Saving...';
+  setTimeout(() => { msg.style.color='var(--accent2)'; msg.textContent='✓ URL noted. Set CAMERA_SOURCE env and redeploy.'; }, 1200);
+}
+</script>
+{% endblock %}

@@ -1,0 +1,125 @@
+{% extends 'base.html' %}
+{% block title %}Login Logs{% endblock %}
+{% block content %}
+
+<div class="card">
+  <div class="card-title">
+    // Login Activity Log — All Records
+    <div style="display:flex;gap:8px;align-items:center;">
+      <span style="font-size:10px;color:var(--muted);font-family:var(--font-mono);">
+        {{ login_logs.total }} total records
+      </span>
+    </div>
+  </div>
+
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;">
+    <span class="badge badge-success">✓ Success</span>
+    <span class="badge badge-danger">✕ Failed</span>
+    <span class="badge badge-warn">⛔ Blocked</span>
+    <span class="badge badge-critical">⚡ Injection</span>
+    <span style="font-family:var(--font-mono);font-size:10px;color:var(--muted);padding:3px 0;">— All attempts logged</span>
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Username</th>
+          <th>IP Address</th>
+          <th>Status</th>
+          <th>User Agent</th>
+          <th>Timestamp</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for log in login_logs.items %}
+        <tr>
+          <td class="ts">{{ log.id }}</td>
+          <td style="font-weight:600;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{{ log.username }}">{{ log.username }}</td>
+          <td class="ip" style="white-space:nowrap;">{{ log.ip_address }}</td>
+          <td>
+            {% if log.status == 'success' %}
+              <span class="badge badge-success">✓ Success</span>
+            {% elif log.status == 'failed' %}
+              <span class="badge badge-danger">✕ Failed</span>
+            {% elif log.status == 'blocked' %}
+              <span class="badge badge-warn">⛔ Blocked</span>
+            {% elif log.status == 'injection' %}
+              <span class="badge badge-critical">⚡ Injection</span>
+            {% else %}
+              <span class="badge badge-muted">{{ log.status }}</span>
+            {% endif %}
+          </td>
+          <td style="font-size:11px;color:var(--muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--font-mono);" title="{{ log.user_agent }}">
+            {{ log.user_agent[:70] if log.user_agent else '—' }}
+          </td>
+          <td class="ts" style="white-space:nowrap;">{{ log.timestamp.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="6" style="color:var(--muted);text-align:center;padding:40px;">
+            No login records found.
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if login_logs.pages > 1 %}
+  <div class="pagination">
+    {% if login_logs.has_prev %}
+      <a href="?page={{ login_logs.prev_num }}" class="btn btn-sm">← Prev</a>
+    {% endif %}
+    <span>Page {{ login_logs.page }} of {{ login_logs.pages }}</span>
+    {% if login_logs.has_next %}
+      <a href="?page={{ login_logs.next_num }}" class="btn btn-sm">Next →</a>
+    {% endif %}
+  </div>
+  {% endif %}
+</div>
+
+{% if role == 'admin' and net_events %}
+<div class="card mt">
+  <div class="card-title">// Network Security Events</div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Event Type</th>
+          <th>Source IP</th>
+          <th>Severity</th>
+          <th>Details</th>
+          <th>Timestamp</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for ev in net_events %}
+        <tr>
+          <td class="ts">{{ ev.id }}</td>
+          <td style="font-weight:600;color:var(--accent);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ ev.event_type }}</td>
+          <td class="ip" style="white-space:nowrap;">{{ ev.source_ip }}</td>
+          <td>
+            {% if ev.severity == 'critical' %}
+              <span class="badge badge-critical">⚡ Critical</span>
+            {% elif ev.severity == 'high' %}
+              <span class="badge badge-danger">▲ High</span>
+            {% elif ev.severity == 'medium' %}
+              <span class="badge badge-warn">● Medium</span>
+            {% else %}
+              <span class="badge badge-info">○ Low</span>
+            {% endif %}
+          </td>
+          <td style="font-size:12px;color:var(--muted);max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{{ ev.detail }}">{{ ev.detail }}</td>
+          <td class="ts" style="white-space:nowrap;">{{ ev.logged_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}
