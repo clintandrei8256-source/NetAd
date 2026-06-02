@@ -274,25 +274,30 @@ def generate_frames():
         while True:
             try:
                 app.logger.info(f'[generate_frames] Connecting to HTTP stream')
-                resp = req_lib.get(source, stream=True, timeout=10,
-                                   headers={'User-Agent': 'NetAdmin-CCTV/1.0'})
+                resp = req_lib.get(source, stream=True, timeout=(10, 30),
+                                   headers={'User-Agent': 'NetAdmin-CCTV/1.0',
+                                            'Connection': 'keep-alive'})
                 if resp.status_code != 200:
                     app.logger.error(f'[generate_frames] HTTP {resp.status_code} from stream URL')
-                    time.sleep(5)
+                    time.sleep(1)
                     continue
                 buf = b''
-                for chunk in resp.iter_content(chunk_size=4096):
-                    buf += chunk
-                    start = buf.find(b'\xff\xd8')
-                    end   = buf.find(b'\xff\xd9')
-                    if start != -1 and end != -1 and end > start:
-                        jpg = buf[start:end + 2]
-                        buf = buf[end + 2:]
-                        yield (b'--frame\r\n'
-                               b'Content-Type: image/jpeg\r\n\r\n' + jpg + b'\r\n')
+                for chunk in resp.iter_content(chunk_size=16384):
+                    if chunk:
+                        buf += chunk
+                        # Keep buf from growing unbounded — drop stale data
+                        if len(buf) > 200000:
+                            buf = buf[-200000:]
+                        start = buf.find(b'\xff\xd8')
+                        end   = buf.find(b'\xff\xd9')
+                        if start != -1 and end != -1 and end > start:
+                            jpg = buf[start:end + 2]
+                            buf = buf[end + 2:]
+                            yield (b'--frame\r\n'
+                                   b'Content-Type: image/jpeg\r\n\r\n' + jpg + b'\r\n')
             except Exception as e:
                 app.logger.error(f'[generate_frames] HTTP stream error: {e}')
-                time.sleep(5)
+                time.sleep(1)
 
     # ── Local webcam / RTSP (OpenCV fallback) ─────────────────────────────────
     else:
@@ -544,6 +549,12 @@ def set_camera():
 @limiter.exempt
 def camera_version():
     return jsonify({'version': CAMERA_VERSION})
+
+@app.route('/api/camera_source')
+@login_required
+@limiter.exempt
+def camera_source():
+    return jsonify({'url': CAMERA_SOURCE.strip()})
 
 
 # ─── ROLE SYNC API ────────────────────────────────────────────────────────────
