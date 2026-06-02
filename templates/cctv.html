@@ -1,0 +1,223 @@
+{% extends 'base.html' %}
+{% block title %}CCTV Monitor{% endblock %}
+{% block content %}
+
+<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:16px;">
+  <div style="font-family:var(--font-mono);font-size:11px;color:var(--muted);letter-spacing:1px;">
+    LIVE CAMERA FEED &nbsp;·&nbsp; CCTV 1
+  </div>
+  <div style="display:flex;gap:8px;">
+    <button class="btn btn-sm" onclick="toggleFullscreen()">⛶ Fullscreen</button>
+    <button class="btn btn-sm" onclick="restartStream()">↺ Refresh</button>
+  </div>
+</div>
+
+<!-- PRIMARY CAMERA FEED -->
+<div class="card" style="padding:0;overflow:hidden;" id="cam-wrapper">
+  <div style="padding:10px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+    <div style="display:flex;align-items:center;gap:14px;">
+      <span style="font-family:var(--font-mono);font-size:12px;color:var(--accent);letter-spacing:2px;">CAM-01</span>
+      <span style="font-size:12px;color:var(--muted);">CCTV 1</span>
+      <span class="badge badge-success" id="live-badge" style="animation:pulse 2s infinite;">● LIVE</span>
+    </div>
+    <div style="display:flex;gap:14px;font-family:var(--font-mono);font-size:10px;color:var(--muted);">
+      <span>RES: 1080p</span><span>FPS: 30</span><span id="cam-clock">--:--:--</span>
+    </div>
+  </div>
+
+  <div style="position:relative;background:#000;width:100%;overflow:hidden;">
+    <!-- MJPEG stream — no onerror so brief network blips don't kill the feed -->
+    <img id="real-feed"
+         style="width:100%;height:auto;object-fit:contain;display:block;" />
+
+    <div id="no-signal" style="display:none;position:relative;width:100%;aspect-ratio:16/9;flex-direction:column;align-items:center;justify-content:center;background:#000;">
+      <canvas id="static-canvas" style="position:absolute;inset:0;width:100%;height:100%;opacity:0.07;"></canvas>
+      <div style="position:relative;z-index:2;text-align:center;">
+        <div style="font-size:56px;opacity:0.12;margin-bottom:12px;">◉</div>
+        <div style="font-family:var(--font-mono);font-size:13px;color:var(--muted);letter-spacing:4px;">NO SIGNAL</div>
+        <div style="font-family:var(--font-mono);font-size:10px;color:var(--muted);opacity:0.4;margin-top:6px;">Camera offline or not connected</div>
+      </div>
+    </div>
+
+    <!-- HUD -->
+    <div style="position:absolute;top:10px;left:12px;font-family:var(--font-mono);font-size:11px;color:rgba(0,212,255,0.9);background:rgba(0,0,0,0.6);padding:3px 10px;border-radius:2px;letter-spacing:1px;">
+      ● REC &nbsp; CAM-01 &nbsp; CCTV 1
+    </div>
+    <div style="position:absolute;top:10px;right:12px;font-family:var(--font-mono);font-size:11px;color:rgba(0,212,255,0.7);background:rgba(0,0,0,0.6);padding:3px 10px;border-radius:2px;" id="hud-clock"></div>
+
+    <!-- Corner SVG brackets -->
+    <svg style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none;" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none">
+      <polyline points="0,20 0,0 20,0"   fill="none" stroke="rgba(0,212,255,0.35)" stroke-width="1.5"/>
+      <polyline points="100%,20 100%,0 calc(100% - 20),0" fill="none" stroke="rgba(0,212,255,0.35)" stroke-width="1.5"/>
+      <polyline points="0,calc(100% - 20) 0,100% 20,100%" fill="none" stroke="rgba(0,212,255,0.35)" stroke-width="1.5"/>
+      <polyline points="calc(100% - 20),100% 100%,100% 100%,calc(100% - 20)" fill="none" stroke="rgba(0,212,255,0.35)" stroke-width="1.5"/>
+    </svg>
+  </div>
+
+  <div style="padding:8px 16px;background:var(--bg2);display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;font-family:var(--font-mono);font-size:10px;color:var(--muted);">
+    <span>LOCATION: CCTV 1</span>
+    <span>CODEC: H.264 · MJPEG</span>
+    <span>STREAM: /video_feed</span>
+  </div>
+</div>
+
+<!-- Camera status -->
+<div class="mt">
+  <div class="card">
+    <div class="card-title">// Camera Status</div>
+    <table style="font-size:12px;">
+      <colgroup><col style="width:120px"/><col/></colgroup>
+      <tbody>
+        <tr><td class="ts" style="padding:8px 12px;">Camera ID</td>  <td style="padding:8px 12px;font-family:var(--font-mono);">CAM-01</td></tr>
+        <tr><td class="ts" style="padding:8px 12px;">Location</td>   <td style="padding:8px 12px;">CCTV 1</td></tr>
+        <tr><td class="ts" style="padding:8px 12px;">Resolution</td> <td style="padding:8px 12px;font-family:var(--font-mono);">1280×720 HD</td></tr>
+        <tr><td class="ts" style="padding:8px 12px;">Frame Rate</td> <td style="padding:8px 12px;font-family:var(--font-mono);">30 FPS</td></tr>
+        <tr><td class="ts" style="padding:8px 12px;">Status</td>     <td style="padding:8px 12px;"><span class="badge badge-success" id="status-badge">● Live</span></td></tr>
+        <tr><td class="ts" style="padding:8px 12px;">Source</td>     <td id="source-cell" style="padding:8px 12px;font-family:var(--font-mono);font-size:11px;word-break:break-all;">CAMERA_SOURCE env</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+// ── Clock ────────────────────────────────────────────────────────────────────
+function tickClock() {
+  const t = new Date().toLocaleTimeString('en-PH', {hour12:false});
+  const h = document.getElementById('hud-clock');
+  const c = document.getElementById('cam-clock');
+  if (h) h.textContent = t;
+  if (c) c.textContent = t;
+}
+tickClock(); setInterval(tickClock, 1000);
+
+// ── Stream health tracking ───────────────────────────────────────────────────
+// We track frame delivery via naturalWidth changes on the img element.
+// Only mark offline after NO_SIGNAL_TIMEOUT ms of no new frames — avoids
+// false positives from normal frame-decode pauses.
+const NO_SIGNAL_TIMEOUT = 15000; // ms of silence before showing no-signal
+const RECONNECT_DELAY   = 6000;  // ms to wait before reconnect attempt
+
+let lastFrameW     = 0;
+let lastFrameTime  = Date.now();
+let isOffline      = false;
+let staticRunning  = false;
+let offlineTimer   = null;
+let reconnectTimer = null;
+
+const feed      = document.getElementById('real-feed');
+const ns        = document.getElementById('no-signal');
+const statusBadge  = document.getElementById('status-badge');
+const liveBadge    = document.getElementById('live-badge');
+
+// Start the stream immediately
+feed.src = '/video_feed?t=' + Date.now();
+
+// ── Frame arrival detector ───────────────────────────────────────────────────
+// MJPEG frames all have the same naturalWidth, so we use onload instead —
+// it fires on every decoded frame regardless of resolution.
+feed.onload = function() {
+  lastFrameTime = Date.now();
+  if (isOffline) markLive();
+  clearTimeout(offlineTimer);
+  offlineTimer = null;
+};
+
+// Watchdog: if onload hasn't fired within NO_SIGNAL_TIMEOUT, go offline.
+setInterval(function() {
+  if (!isOffline) {
+    const silence = Date.now() - lastFrameTime;
+    if (silence >= NO_SIGNAL_TIMEOUT && !offlineTimer) {
+      offlineTimer = setTimeout(markOffline, 0);
+    }
+  }
+}, 500);
+
+// ── Live / Offline state ─────────────────────────────────────────────────────
+function markLive() {
+  isOffline = false;
+  staticRunning = false;
+  clearTimeout(reconnectTimer);
+  reconnectTimer = null;
+
+  if (ns)          ns.style.display        = 'none';
+  if (feed)        feed.style.display      = 'block';
+  if (statusBadge) { statusBadge.textContent = '● Live';    statusBadge.className = 'badge badge-success'; }
+  if (liveBadge)   { liveBadge.textContent   = '● LIVE';    liveBadge.className   = 'badge badge-success'; liveBadge.style.animation = 'pulse 2s infinite'; }
+}
+
+function markOffline() {
+  isOffline = true;
+
+  if (feed)        feed.style.display      = 'none';
+  if (ns)          ns.style.display        = 'flex';
+  if (statusBadge) { statusBadge.textContent = '✕ Offline'; statusBadge.className = 'badge badge-danger'; }
+  if (liveBadge)   { liveBadge.textContent   = '✕ OFFLINE'; liveBadge.className   = 'badge badge-danger'; liveBadge.style.animation = 'none'; }
+
+  if (!staticRunning) startStatic();
+
+  // Schedule a reconnect attempt
+  scheduleReconnect();
+}
+
+function scheduleReconnect() {
+  clearTimeout(reconnectTimer);
+  reconnectTimer = setTimeout(function() {
+    if (!isOffline) return;
+    // Reload the stream; set lastFrameTime so the watchdog gives a full
+    // NO_SIGNAL_TIMEOUT window for the first frame to arrive
+    feed.src      = '/video_feed?t=' + Date.now();
+    lastFrameTime = Date.now();
+    // If still no frames after the full timeout, try again
+    reconnectTimer = setTimeout(function() {
+      if (isOffline) scheduleReconnect();
+    }, NO_SIGNAL_TIMEOUT + 1000);
+  }, RECONNECT_DELAY);
+}
+
+// ── Static noise canvas ──────────────────────────────────────────────────────
+function startStatic() {
+  staticRunning = true;
+  const canvas = document.getElementById('static-canvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  function resize() { canvas.width = canvas.offsetWidth || 640; canvas.height = canvas.offsetHeight || 360; }
+  resize(); window.addEventListener('resize', resize);
+  (function draw() {
+    if (!staticRunning) return;
+    const w = canvas.width, h = canvas.height;
+    const img = ctx.createImageData(w, h);
+    for (let i = 0; i < img.data.length; i += 4) {
+      const v = Math.random() * 255 | 0;
+      img.data[i] = img.data[i+1] = img.data[i+2] = v; img.data[i+3] = 255;
+    }
+    ctx.putImageData(img, 0, 0); requestAnimationFrame(draw);
+  })();
+}
+
+// ── Manual refresh ───────────────────────────────────────────────────────────
+function restartStream() {
+  clearTimeout(offlineTimer);
+  clearTimeout(reconnectTimer);
+  offlineTimer      = null;
+  reconnectTimer    = null;
+  lastFrameW        = 0;
+  lastFrameTime     = Date.now();
+  isOffline         = false;
+  staticRunning     = false;
+
+  // Briefly hide to force browser to drop the old connection
+  feed.src = '';
+  setTimeout(function() {
+    markLive();
+    feed.src = '/video_feed?t=' + Date.now();
+  }, 100);
+}
+
+// ── Fullscreen ───────────────────────────────────────────────────────────────
+function toggleFullscreen() {
+  const el = document.getElementById('cam-wrapper');
+  if (!document.fullscreenElement) el.requestFullscreen && el.requestFullscreen();
+  else document.exitFullscreen && document.exitFullscreen();
+}
+</script>
+{% endblock %}

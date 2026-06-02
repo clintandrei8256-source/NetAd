@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta http-equiv="X-UA-Compatible" content="IE=edge"/>
+  <meta http-equiv="X-Frame-Options" content="DENY"/>
+  <meta name="referrer" content="no-referrer"/>
+  <title>NetAdmin — Register</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Exo+2:wght@300;400;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #080c10; --bg2: #0d1117; --panel: #0a1420;
+      --border: #1a2d3d; --accent: #00d4ff; --accent2: #00ff88;
+      --danger: #ff3b5c; --warn: #ffaa00; --text: #c8e0f0; --muted: #4a6070;
+      --font-mono: 'Share Tech Mono', monospace;
+      --font-main: 'Exo 2', sans-serif;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg); color: var(--text);
+      font-family: var(--font-main); min-height: 100vh;
+      display: flex; align-items: center; justify-content: center;
+      overflow: hidden; position: relative;
+    }
+    .grid-bg {
+      position: fixed; inset: 0;
+      background-image:
+        linear-gradient(rgba(0,212,255,0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0,212,255,0.03) 1px, transparent 1px);
+      background-size: 40px 40px; z-index: 0;
+    }
+    .grid-bg::after {
+      content: ''; position: absolute; inset: 0;
+      background: radial-gradient(ellipse at center, transparent 0%, var(--bg) 70%);
+    }
+    .scanline {
+      position: fixed; width: 100%; height: 2px;
+      background: linear-gradient(90deg, transparent, var(--accent2), transparent);
+      opacity: 0.2; animation: scan 6s linear infinite; z-index: 1;
+    }
+    @keyframes scan { 0% { top: -2px; } 100% { top: 100%; } }
+
+    .wrap { position: relative; z-index: 10; width: 100%; max-width: 440px; padding: 20px; }
+
+    .header { text-align: center; margin-bottom: 24px; }
+    .logo { font-family: var(--font-mono); font-size: 28px; color: var(--accent); letter-spacing: 6px; text-shadow: 0 0 24px rgba(0,212,255,0.5); }
+    .sub  { font-size: 10px; color: var(--muted); letter-spacing: 4px; text-transform: uppercase; margin-top: 6px; }
+    .divider { display: flex; align-items: center; gap: 12px; margin-top: 14px; }
+    .divider::before, .divider::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+    .divider span { font-family: var(--font-mono); font-size: 10px; color: var(--muted); }
+
+    /* Back link */
+    .back-link {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-family: var(--font-mono); font-size: 11px; color: var(--muted);
+      text-decoration: none; letter-spacing: 1px; text-transform: uppercase;
+      transition: color 0.2s; margin-bottom: 16px;
+    }
+    .back-link:hover { color: var(--accent); }
+
+    .card {
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 8px; padding: 30px; position: relative; overflow: hidden;
+    }
+    .card::before {
+      content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+      background: linear-gradient(90deg, transparent, var(--accent2), transparent);
+    }
+    .card-label {
+      font-family: var(--font-mono); font-size: 11px; color: var(--accent2);
+      letter-spacing: 3px; text-transform: uppercase; margin-bottom: 20px; text-align: center;
+    }
+
+    .form-group { margin-bottom: 16px; }
+    .form-group label {
+      display: block; font-size: 10px; color: var(--muted);
+      letter-spacing: 2px; text-transform: uppercase; margin-bottom: 7px;
+      font-family: var(--font-mono);
+    }
+    .form-group input {
+      width: 100%; padding: 11px 14px;
+      background: rgba(0,0,0,0.3); border: 1px solid var(--border);
+      border-radius: 4px; color: var(--text);
+      font-family: var(--font-mono); font-size: 14px;
+      outline: none; transition: border-color .2s, box-shadow .2s;
+    }
+    .form-group input:focus { border-color: var(--accent2); box-shadow: 0 0 0 3px rgba(0,255,136,0.08); }
+    .hint { font-family: var(--font-mono); font-size: 9px; color: var(--muted); margin-top: 4px; letter-spacing: 0.5px; }
+
+    /* Password strength bar */
+    .pw-strength { margin-top: 6px; height: 3px; border-radius: 2px; background: var(--border); overflow: hidden; }
+    .pw-strength-bar { height: 100%; width: 0; border-radius: 2px; transition: width 0.3s, background 0.3s; }
+
+    .error-msg {
+      background: rgba(255,59,92,0.1); border: 1px solid rgba(255,59,92,0.3);
+      border-radius: 4px; padding: 10px 14px;
+      font-family: var(--font-mono); font-size: 12px;
+      color: var(--danger); margin-bottom: 16px; word-break: break-word;
+    }
+    .success-msg {
+      background: rgba(0,255,136,0.08); border: 1px solid rgba(0,255,136,0.25);
+      border-radius: 4px; padding: 10px 14px;
+      font-family: var(--font-mono); font-size: 12px;
+      color: var(--accent2); margin-bottom: 16px; word-break: break-word;
+    }
+
+    .btn {
+      width: 100%; padding: 12px;
+      background: rgba(0,255,136,0.08); border: 1px solid var(--accent2);
+      border-radius: 4px; color: var(--accent2);
+      font-family: var(--font-mono); font-size: 13px;
+      letter-spacing: 3px; text-transform: uppercase;
+      cursor: pointer; transition: all .2s; margin-top: 8px;
+    }
+    .btn:hover { background: rgba(0,255,136,0.15); box-shadow: 0 0 20px rgba(0,255,136,0.2); }
+    .btn:active { transform: scale(0.99); }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .footer { text-align: center; margin-top: 16px; font-family: var(--font-mono); font-size: 10px; color: var(--muted); }
+    .footer a { color: var(--accent); text-decoration: none; }
+    .footer a:hover { text-decoration: underline; }
+    .warning-text {
+      font-family: var(--font-mono); font-size: 9px; color: var(--muted);
+      text-align: center; margin-top: 14px; letter-spacing: 1px; line-height: 1.8;
+      border-top: 1px solid var(--border); padding-top: 14px;
+    }
+    .gmail-badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: rgba(0,212,255,0.06); border: 1px solid rgba(0,212,255,0.2);
+      border-radius: 20px; padding: 4px 12px;
+      font-family: var(--font-mono); font-size: 9px; color: var(--muted);
+      letter-spacing: 1px; text-transform: uppercase; margin-bottom: 18px;
+      width: 100%; justify-content: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="grid-bg"></div>
+  <div class="scanline"></div>
+
+  <div class="wrap">
+    <!-- Back button -->
+    <a href="/login" class="back-link">← Back to Login</a>
+
+    <div class="header">
+      <div class="logo">⬡ NETADMIN</div>
+      <div class="sub">Network Security Console</div>
+      <div class="divider"><span>CREATE VIEWER ACCOUNT</span></div>
+    </div>
+
+    <div class="card">
+      <div class="card-label">// Gmail Registration</div>
+      <div class="gmail-badge">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+        @gmail.com accounts only · Viewer access
+      </div>
+
+      {% if error %}
+        <div class="error-msg">⚠ {{ error }}</div>
+      {% endif %}
+      {% if success %}
+        <div class="success-msg">✓ {{ success }} <a href="/login" style="color:var(--accent);">→ Login here</a></div>
+      {% endif %}
+
+      {% if not success %}
+      <form method="POST" autocomplete="off" id="reg-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+        <div class="form-group">
+          <label>Gmail Address</label>
+          <input type="email" name="gmail" id="gmail-input"
+                 placeholder="yourname@gmail.com"
+                 required autocomplete="off" spellcheck="false"
+                 maxlength="120"
+                 pattern="[a-zA-Z0-9._%+\-]+@gmail\.com"/>
+          <div class="hint">Must be a valid @gmail.com address</div>
+        </div>
+
+        <div class="form-group">
+          <label>Password</label>
+          <input type="password" name="password" id="pw-input"
+                 placeholder="Min. 8 characters" required
+                 minlength="8" maxlength="128"/>
+          <div class="pw-strength"><div class="pw-strength-bar" id="pw-bar"></div></div>
+          <div class="hint" id="pw-hint">Use 8+ chars with letters, numbers & symbols</div>
+        </div>
+
+        <div class="form-group">
+          <label>Confirm Password</label>
+          <input type="password" name="confirm_password" id="pw2-input"
+                 placeholder="Re-enter password" required maxlength="128"/>
+          <div class="hint" id="pw-match-hint"></div>
+        </div>
+
+        <button type="submit" class="btn" id="reg-btn">▶ Create Account</button>
+      </form>
+      {% endif %}
+
+      <div class="warning-text">
+        New accounts are granted Viewer access only.<br>
+        Contact admin to request elevated permissions.
+      </div>
+    </div>
+
+    <div class="footer">
+      Already have an account? <a href="/login">Log in here</a>
+    </div>
+  </div>
+
+<script>
+/* ── Password strength meter ── */
+const pwInput  = document.getElementById('pw-input');
+const pw2Input = document.getElementById('pw2-input');
+const pwBar    = document.getElementById('pw-bar');
+const pwHint   = document.getElementById('pw-hint');
+const matchHint= document.getElementById('pw-match-hint');
+const regBtn   = document.getElementById('reg-btn');
+
+function checkStrength(pw) {
+  let score = 0;
+  if (pw.length >= 8)  score++;
+  if (pw.length >= 12) score++;
+  if (/[A-Z]/.test(pw)) score++;
+  if (/[0-9]/.test(pw)) score++;
+  if (/[^A-Za-z0-9]/.test(pw)) score++;
+  return score;
+}
+
+if (pwInput) {
+  pwInput.addEventListener('input', function() {
+    const score = checkStrength(this.value);
+    const pct   = (score / 5) * 100;
+    const colors= ['#ff3b5c','#ff3b5c','#ffaa00','#ffaa00','#00ff88'];
+    const labels= ['Too weak','Weak','Fair','Good','Strong'];
+    pwBar.style.width      = pct + '%';
+    pwBar.style.background = colors[Math.max(0, score-1)] || 'transparent';
+    pwHint.textContent     = score > 0 ? labels[score-1] : 'Use 8+ chars with letters, numbers & symbols';
+    checkMatch();
+  });
+}
+
+if (pw2Input) {
+  pw2Input.addEventListener('input', checkMatch);
+}
+
+function checkMatch() {
+  if (!pw2Input || !pwInput) return;
+  if (!pw2Input.value) { matchHint.textContent=''; return; }
+  if (pw2Input.value === pwInput.value) {
+    matchHint.style.color = 'var(--accent2)'; matchHint.textContent = '✓ Passwords match';
+  } else {
+    matchHint.style.color = 'var(--danger)'; matchHint.textContent = '✕ Passwords do not match';
+  }
+}
+
+/* ── Block submit if passwords mismatch ── */
+const form = document.getElementById('reg-form');
+if (form) {
+  form.addEventListener('submit', function(e) {
+    if (pwInput.value !== pw2Input.value) {
+      e.preventDefault();
+      matchHint.style.color = 'var(--danger)';
+      matchHint.textContent = '✕ Passwords do not match';
+      pw2Input.focus();
+    }
+  });
+}
+</script>
+</body>
+</html>

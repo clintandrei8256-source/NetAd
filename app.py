@@ -1,10 +1,20 @@
 import os
+from dotenv import load_dotenv
+load_dotenv()
+
+# Gevent monkey-patch must come before all other imports
+# so that socket/threading I/O is non-blocking under gunicorn gevent workers.
+from gevent import monkey; monkey.patch_all(thread=False)
+
 import cv2
 import time
 import secrets
 import re
+import ipaddress
+import requests as req_lib
 from datetime import datetime, timedelta, timezone
 from functools import wraps
+from urllib.parse import urlparse
 
 from flask import (Flask, render_template, request, redirect,
                    url_for, session, Response, jsonify, abort, flash)
@@ -13,11 +23,13 @@ from flask_bcrypt import Bcrypt
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from flask_wtf.csrf import CSRFProtect, generate_csrf
+from werkzeug.middleware.proxy_fix import ProxyFix
 import bleach
 
 # ─── APP INIT ─────────────────────────────────────────────────────────────────
 
 app = Flask(__name__)
+app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 
 app.config['SECRET_KEY']                     = os.environ.get('SECRET_KEY', secrets.token_hex(32))
 app.config['SQLALCHEMY_DATABASE_URI']        = os.environ.get(
@@ -26,10 +38,11 @@ app.config['SQLALCHEMY_DATABASE_URI']        = os.environ.get(
 )
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SESSION_COOKIE_HTTPONLY']        = True
-app.config['SESSION_COOKIE_SECURE']          = os.environ.get('FLASK_ENV') == 'production'
+app.config['SESSION_COOKIE_SECURE']          = True
 app.config['SESSION_COOKIE_SAMESITE']        = 'Lax'
 app.config['PERMANENT_SESSION_LIFETIME']     = timedelta(minutes=30)
 app.config['WTF_CSRF_TIME_LIMIT']            = 3600
+app.config['WTF_CSRF_SSL_STRICT']            = False
 
 db_url = app.config['SQLALCHEMY_DATABASE_URI']
 if db_url.startswith('postgres://'):
@@ -46,8 +59,8 @@ limiter = Limiter(
 
 # ─── CONSTANTS ────────────────────────────────────────────────────────────────
 
-ADMIN_USERNAME  = 'admin@8080'
-ADMIN_PASSWORD  = 'group2binilat'
+ADMIN_USERNAME  = os.environ.get('ADMIN_USERNAME', '')
+ADMIN_PASSWORD  = os.environ.get('ADMIN_PASSWORD', '')
 MAX_ATTEMPTS    = 3
 LOCKOUT_MINUTES = 60
 
@@ -96,7 +109,13 @@ class NetworkEvent(db.Model):
 def get_ip():
     forwarded = request.headers.get('X-Forwarded-For')
     if forwarded:
-        return forwarded.split(',')[0].strip()
+        ip = forwarded.split(',')[0].strip()
+        # Validate it's actually an IP
+        try:
+            ipaddress.ip_address(ip)
+            return ip
+        except ValueError:
+            pass
     return request.remote_addr or '0.0.0.0'
 
 def log_login(username, ip, status, ua, user_id=None):
@@ -131,11 +150,42 @@ def log_event(event_type, source_ip, detail, severity='medium'):
         app.logger.error(f'[log_event] DB error: {exc}')
 
 def sanitize(value):
-    return bleach.clean(str(value).strip(), tags=[], strip=True)
+    """Strip all HTML tags and control characters."""
+    cleaned = bleach.clean(str(value).strip(), tags=[], strip=True)
+    # Remove null bytes and other dangerous control chars
+    cleaned = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', cleaned)
+    return cleaned
 
 def is_valid_gmail(email):
     pattern = r'^[a-zA-Z0-9._%+\-]+@gmail\.com$'
     return bool(re.match(pattern, email))
+
+def is_safe_stream_url(url):
+    """
+    SSRF protection: only allow http/https URLs pointing to public/routable IPs
+    or hostnames. Block internal IPs, localhost, and suspicious schemes.
+    """
+    try:
+        parsed = urlparse(url)
+        if parsed.scheme not in ('http', 'https', 'rtsp', 'rtsps'):
+            return False, 'Only http, https, rtsp, or rtsps URLs are allowed.'
+        host = parsed.hostname
+        if not host:
+            return False, 'Invalid URL: no host.'
+        # Block localhost variants
+        if host in ('localhost', '127.0.0.1', '::1', '0.0.0.0'):
+            return False, 'Internal addresses are not allowed.'
+        # Try to resolve as IP and check for private ranges
+        try:
+            addr = ipaddress.ip_address(host)
+            if addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved:
+                return False, 'Private/reserved IP addresses are not allowed.'
+        except ValueError:
+            # It's a hostname — allow it (DNS-based checks are out of scope here)
+            pass
+        return True, None
+    except Exception:
+        return False, 'Invalid URL format.'
 
 def get_failed_attempts(username):
     cutoff = now_ph() - timedelta(minutes=LOCKOUT_MINUTES)
@@ -168,6 +218,14 @@ def login_required(f):
     def decorated(*args, **kwargs):
         if 'user_id' not in session:
             return redirect(url_for('login'))
+        # Always re-check active status + role from DB on each request
+        user = db.session.get(User, session['user_id'])
+        if not user or not user.is_active:
+            session.clear()
+            return redirect(url_for('login'))
+        # Keep session role in sync with DB role
+        if session.get('role') != user.role:
+            session['role'] = user.role
         return f(*args, **kwargs)
     return decorated
 
@@ -176,6 +234,13 @@ def admin_required(f):
     def decorated(*args, **kwargs):
         if 'user_id' not in session:
             return redirect(url_for('login'))
+        user = db.session.get(User, session['user_id'])
+        if not user or not user.is_active:
+            session.clear()
+            return redirect(url_for('login'))
+        # Sync role from DB
+        if session.get('role') != user.role:
+            session['role'] = user.role
         if session.get('role') != 'admin':
             abort(403)
         return f(*args, **kwargs)
@@ -194,41 +259,91 @@ def inject_globals():
 
 # ─── CAMERA STREAM ────────────────────────────────────────────────────────────
 
-CAMERA_SOURCE = os.environ.get('CAMERA_SOURCE', 0)
+CAMERA_SOURCE  = os.environ.get('CAMERA_SOURCE', '0')  # mutable at runtime
+CAMERA_VERSION = 1  # increments every time source changes
+
+def _is_url(source):
+    return source.startswith('http://') or source.startswith('https://')
 
 def generate_frames():
-    cam = None
-    try:
-        source = int(CAMERA_SOURCE) if str(CAMERA_SOURCE).isdigit() else CAMERA_SOURCE
-        cam = cv2.VideoCapture(source)
-        cam.set(cv2.CAP_PROP_FRAME_WIDTH,  1280)
-        cam.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
-        while True:
-            success, frame = cam.read()
-            if not success:
-                break
-            ts = now_ph().strftime('%Y-%m-%d  %H:%M:%S') + ' PST'
-            cv2.putText(frame, ts,    (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 220, 255), 2)
-            cv2.putText(frame, 'REC', (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0,   255), 2)
-            _, buf = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
-            yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buf.tobytes() + b'\r\n')
-            time.sleep(0.033)
-    finally:
-        if cam:
-            cam.release()
+    global CAMERA_SOURCE
+    source = CAMERA_SOURCE.strip()
 
+    # ── HTTP/HTTPS MJPEG stream ────────────────────────────────────────────────
+    if _is_url(source):
+        while True:
+            try:
+                app.logger.info(f'[generate_frames] Connecting to HTTP stream')
+                resp = req_lib.get(source, stream=True, timeout=10,
+                                   headers={'User-Agent': 'NetAdmin-CCTV/1.0'})
+                if resp.status_code != 200:
+                    app.logger.error(f'[generate_frames] HTTP {resp.status_code} from stream URL')
+                    time.sleep(5)
+                    continue
+                buf = b''
+                for chunk in resp.iter_content(chunk_size=4096):
+                    buf += chunk
+                    start = buf.find(b'\xff\xd8')
+                    end   = buf.find(b'\xff\xd9')
+                    if start != -1 and end != -1 and end > start:
+                        jpg = buf[start:end + 2]
+                        buf = buf[end + 2:]
+                        yield (b'--frame\r\n'
+                               b'Content-Type: image/jpeg\r\n\r\n' + jpg + b'\r\n')
+            except Exception as e:
+                app.logger.error(f'[generate_frames] HTTP stream error: {e}')
+                time.sleep(5)
+
+    # ── Local webcam / RTSP (OpenCV fallback) ─────────────────────────────────
+    else:
+        cam_index = int(source) if source.isdigit() else source
+        while True:          # retry forever — stream must never terminate
+            cam = None
+            try:
+                cam = cv2.VideoCapture(cam_index, cv2.CAP_FFMPEG)
+                cam.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                if not cam.isOpened():
+                    app.logger.warning('[generate_frames] Camera not opened, retrying in 3s')
+                    time.sleep(3)
+                    continue
+                consecutive_failures = 0
+                while True:
+                    success, frame = cam.read()
+                    if not success:
+                        consecutive_failures += 1
+                        if consecutive_failures > 10:
+                            app.logger.warning('[generate_frames] Too many read failures, reopening camera')
+                            break
+                        time.sleep(0.05)
+                        continue
+                    consecutive_failures = 0
+                    ts = now_ph().strftime('%Y-%m-%d  %H:%M:%S') + ' PST'
+                    cv2.putText(frame, ts,    (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 220, 255), 2)
+                    cv2.putText(frame, 'REC', (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0,   255), 2)
+                    _, buf2 = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+                    time.sleep(1/30)  # cap at ~30 fps to avoid flooding the browser
+                    yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buf2.tobytes() + b'\r\n')
+            except Exception as e:
+                app.logger.error(f'[generate_frames] OpenCV error: {e}')
+            finally:
+                if cam:
+                    cam.release()
+            time.sleep(2)   # brief pause before reopening
 # ─── ROUTES ───────────────────────────────────────────────────────────────────
 
 @app.route('/')
 def index():
     return redirect(url_for('dashboard') if 'user_id' in session else url_for('login'))
 
-
 @app.route('/login', methods=['GET', 'POST'])
 @limiter.limit("10 per minute", methods=["POST"])
 def login():
     if 'user_id' in session:
         return redirect(url_for('dashboard'))
+
+    # Guard against missing env vars — fail gracefully instead of 500
+    if not ADMIN_USERNAME or not ADMIN_PASSWORD:
+        app.logger.error('[login] ADMIN_USERNAME or ADMIN_PASSWORD env var not set!')
 
     error       = None
     lockout_msg = None
@@ -238,18 +353,38 @@ def login():
         password     = request.form.get('password', '')
         ip           = get_ip()
         ua           = request.headers.get('User-Agent', '')[:300]
-        username     = sanitize(raw_username)
 
-        # 1. Injection detection
-        bad_chars = ["'", '"', '--', ';', '<script', 'DROP ', 'SELECT ', 'OR 1=1']
-        if any(b.lower() in username.lower() for b in bad_chars):
-            log_login(username, ip, 'injection', ua)
-            log_event('Injection Attempt', ip,
-                      f'Suspicious login input: {username[:80]}', 'critical')
-            error = 'Invalid input detected. This incident has been logged.'
+        # Reject oversized inputs before any processing
+        if len(raw_username) > 120 or len(password) > 256:
+            error = 'Invalid input.'
             return render_template('login.html', error=error)
 
-        # 2. Lockout check (non-admin only)
+        username = sanitize(raw_username)
+
+        # Pattern-based injection detection (defence-in-depth; ORM already prevents SQLi)
+        injection_patterns = [
+            r"['\";]",               # quote/semicolon characters
+            r'--',                   # SQL comment
+            r'<\s*script',           # XSS
+            r'\bDROP\b',             # DDL
+            r'\bSELECT\b',           # DML
+            r'\bINSERT\b',
+            r'\bUPDATE\b',
+            r'\bDELETE\b',
+            r'\bUNION\b',
+            r'\bOR\b\s+\d',          # OR 1=1 style
+            r'\bAND\b\s+\d',
+            r'\/\*',                 # block comment
+            r'\x00',                 # null byte
+        ]
+        for pat in injection_patterns:
+            if re.search(pat, username, re.IGNORECASE):
+                log_login(username[:80], ip, 'injection', ua)
+                log_event('Injection Attempt', ip,
+                          f'Suspicious login input detected from {ip}', 'critical')
+                error = 'Invalid input detected. This incident has been logged.'
+                return render_template('login.html', error=error)
+
         if username != ADMIN_USERNAME:
             locked, unlock_at = is_account_locked(username)
             if locked:
@@ -260,10 +395,16 @@ def login():
                 lockout_msg = (f'Account locked. Try again in {mins}m {secs}s.')
                 return render_template('login.html', lockout_msg=lockout_msg)
 
-        # 3. Authenticate
         user = User.query.filter_by(username=username).first()
-        if user and user.is_active and user.password_hash and \
-                bcrypt.check_password_hash(user.password_hash, password):
+
+        # Prevent timing oracle: always run bcrypt even if user not found
+        dummy_hash = '$2b$12$notarealhashXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX'
+        check_hash = user.password_hash if (user and user.password_hash) else dummy_hash
+        password_ok = bcrypt.check_password_hash(check_hash, password)
+
+        if user and user.is_active and user.password_hash and password_ok:
+            # Session fixation protection: regenerate session on login
+            session.clear()
             session.permanent   = True
             session['user_id']  = user.id
             session['username'] = user.username
@@ -303,11 +444,15 @@ def register():
     error   = None
     success = None
     if request.method == 'POST':
-        gmail   = sanitize(request.form.get('gmail', '')).lower()
+        gmail    = sanitize(request.form.get('gmail', '')).lower()
         password = request.form.get('password', '')
         confirm  = request.form.get('confirm_password', '')
         ip       = get_ip()
-        if not is_valid_gmail(gmail):
+
+        # Length guards
+        if len(gmail) > 120 or len(password) > 256:
+            error = 'Input too long.'
+        elif not is_valid_gmail(gmail):
             error = 'Please enter a valid @gmail.com address.'
         elif len(password) < 8:
             error = 'Password must be at least 8 characters.'
@@ -328,7 +473,7 @@ def register():
             db.session.add(new_user)
             db.session.commit()
             log_event('User Registered', ip,
-                      f'New viewer account registered: "{gmail}"', 'low')
+                      f'New viewer account registered.', 'low')
             success = 'Account created successfully! You can now log in.'
     return render_template('register.html', error=error, success=success)
 
@@ -337,7 +482,7 @@ def register():
 def logout():
     username = session.get('username', 'unknown')
     ip       = get_ip()
-    log_event('User Logout', ip, f'User "{username}" logged out.', 'low')
+    log_event('User Logout', ip, f'User logged out.', 'low')
     session.clear()
     return redirect(url_for('login'))
 
@@ -360,13 +505,58 @@ def dashboard():
 
 @app.route('/video_feed')
 @login_required
+@limiter.exempt
 def video_feed():
     return Response(generate_frames(),
                     mimetype='multipart/x-mixed-replace; boundary=frame')
 
 
-@app.route('/logs')
+
+
+
+@app.route('/api/set_camera', methods=['POST'])
+@admin_required
+def set_camera():
+    global CAMERA_SOURCE, CAMERA_VERSION
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify({'ok': False, 'error': 'Invalid JSON'}), 400
+    url  = (data.get('url') or '').strip()
+    if not url:
+        return jsonify({'ok': False, 'error': 'No URL provided'}), 400
+
+    # SSRF protection
+    safe, reason = is_safe_stream_url(url)
+    if not safe:
+        log_event('Camera SSRF Attempt', get_ip(),
+                  f'Blocked unsafe camera URL submission.', 'high')
+        return jsonify({'ok': False, 'error': reason}), 400
+
+    CAMERA_SOURCE  = url
+    CAMERA_VERSION += 1
+    log_event('Camera Source Updated', get_ip(),
+              f'Admin updated camera source.', 'low')
+    return jsonify({'ok': True, 'version': CAMERA_VERSION})
+
+@app.route('/api/camera_version')
 @login_required
+@limiter.exempt
+def camera_version():
+    return jsonify({'version': CAMERA_VERSION})
+
+
+# ─── ROLE SYNC API ────────────────────────────────────────────────────────────
+# Allows the client to poll whether their session role has changed.
+
+@app.route('/api/session_role')
+@login_required
+def session_role():
+    """Returns the current role from the DB (session is already synced by login_required)."""
+    return jsonify({'role': session.get('role', 'viewer')})
+
+
+@app.route('/logs')
+@admin_required
 def logs():
     page     = request.args.get('page', 1, type=int)
     per_page = 30
@@ -384,7 +574,7 @@ def logs():
 
 
 @app.route('/attacks')
-@login_required
+@admin_required
 def attacks():
     page     = request.args.get('page', 1, type=int)
     per_page = 30
@@ -396,7 +586,7 @@ def attacks():
 
 
 @app.route('/cctv')
-@login_required
+@admin_required
 def cctv():
     return render_template('cctv.html')
 
@@ -420,8 +610,11 @@ def add_user():
     if not username or not password:
         flash('Username and password are required.', 'error')
         return redirect(url_for('users'))
+    if len(username) > 120 or len(password) > 256:
+        flash('Input too long.', 'error')
+        return redirect(url_for('users'))
     if User.query.filter_by(username=username).first():
-        flash(f'Username "{username}" already exists.', 'error')
+        flash(f'Username already exists.', 'error')
         return redirect(url_for('users'))
     if gmail_addr and not is_valid_gmail(gmail_addr):
         flash('Invalid Gmail address format.', 'error')
@@ -437,15 +630,17 @@ def add_user():
     db.session.add(new_user)
     db.session.commit()
     log_event('User Created', get_ip(),
-              f'Admin created user "{username}" with role "{role}".', 'low')
-    flash(f'User "{username}" created successfully.', 'success')
+              f'Admin created a user with role "{role}".', 'low')
+    flash(f'User created successfully.', 'success')
     return redirect(url_for('users'))
 
 
 @app.route('/users/set_role/<int:uid>', methods=['POST'])
 @admin_required
 def set_role(uid):
-    user = User.query.get_or_404(uid)
+    user = db.session.get(User, uid)
+    if user is None:
+        abort(404)
     if user.username == ADMIN_USERNAME:
         flash('Cannot change the built-in admin role.', 'error')
         return redirect(url_for('users'))
@@ -455,31 +650,35 @@ def set_role(uid):
     user.role = new_role
     db.session.commit()
     log_event('Role Changed', get_ip(),
-              f'Admin set "{user.username}" role to "{new_role}".', 'medium')
-    flash(f'Role updated to "{new_role}" for "{user.username}".', 'success')
+              f'Admin set a user role to "{new_role}".', 'medium')
+    flash(f'Role updated to "{new_role}".', 'success')
     return redirect(url_for('users'))
 
 
 @app.route('/users/toggle/<int:uid>')
 @admin_required
 def toggle_user(uid):
-    user = User.query.get_or_404(uid)
+    user = db.session.get(User, uid)
+    if user is None:
+        abort(404)
     if user.username != ADMIN_USERNAME:
         user.is_active = not user.is_active
         db.session.commit()
         state = 'enabled' if user.is_active else 'disabled'
         log_event('User Toggled', get_ip(),
-                  f'Admin {state} user "{user.username}".', 'medium')
+                  f'Admin {state} a user.', 'medium')
     return redirect(url_for('users'))
 
 
 @app.route('/users/delete/<int:uid>')
 @admin_required
 def delete_user(uid):
-    user = User.query.get_or_404(uid)
+    user = db.session.get(User, uid)
+    if user is None:
+        abort(404)
     if user.username != ADMIN_USERNAME:
         log_event('User Deleted', get_ip(),
-                  f'Admin deleted user "{user.username}".', 'medium')
+                  f'Admin deleted a user.', 'medium')
         db.session.delete(user)
         db.session.commit()
     return redirect(url_for('users'))
@@ -523,23 +722,37 @@ def not_found(e):
 
 @app.errorhandler(429)
 def rate_limited(e):
+    from flask import request as _req
     ip = get_ip()
-    log_event('Rate Limit Exceeded', ip, 'Too many requests.', 'high')
+    # Don't log rate-limit events for the video stream — those are normal reconnects
+    if not _req.path.startswith('/video_feed'):
+        log_event('Rate Limit Exceeded', ip,
+                  f'Too many requests to {_req.path}', 'high')
     return render_template('error.html', code=429,
                            msg='Too many requests. You have been temporarily blocked.'), 429
+
+@app.errorhandler(500)
+def internal_error(e):
+    db.session.rollback()
+    app.logger.error(f'[500] {e}')
+    return render_template('error.html', code=500,
+                           msg='Internal server error. Please try again.'), 500
 
 # ─── DB INIT ──────────────────────────────────────────────────────────────────
 
 def init_db():
     with app.app_context():
         db.create_all()
+        if not ADMIN_USERNAME or not ADMIN_PASSWORD:
+            app.logger.warning('⚠️  ADMIN_USERNAME or ADMIN_PASSWORD is not set in environment!')
+            return
         if not User.query.filter_by(username=ADMIN_USERNAME).first():
             pw    = bcrypt.generate_password_hash(ADMIN_PASSWORD).decode('utf-8')
             admin = User(username=ADMIN_USERNAME, password_hash=pw,
                          role='admin', auth_provider='local')
             db.session.add(admin)
             db.session.commit()
-            print(f'✅ Admin created — username: {ADMIN_USERNAME} | password: {ADMIN_PASSWORD}')
+            print(f'✅ Admin created — username: {ADMIN_USERNAME}')
         else:
             print(f'ℹ️  Admin "{ADMIN_USERNAME}" already exists.')
 
