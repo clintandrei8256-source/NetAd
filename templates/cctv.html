@@ -91,13 +91,11 @@ function tickClock() {
 tickClock(); setInterval(tickClock, 1000);
 
 // ── Stream health tracking ───────────────────────────────────────────────────
-// We track frame delivery via naturalWidth changes on the img element.
-// Only mark offline after NO_SIGNAL_TIMEOUT ms of no new frames — avoids
-// false positives from normal frame-decode pauses.
-const NO_SIGNAL_TIMEOUT = 15000; // ms of silence before showing no-signal
-const RECONNECT_DELAY   = 6000;  // ms to wait before reconnect attempt
+// img.onload fires on every decoded MJPEG frame. If it stops firing for
+// NO_SIGNAL_TIMEOUT ms we assume the stream is down and show no-signal.
+const NO_SIGNAL_TIMEOUT = 15000;
+const RECONNECT_DELAY   = 6000;
 
-let lastFrameW     = 0;
 let lastFrameTime  = Date.now();
 let isOffline      = false;
 let staticRunning  = false;
@@ -200,7 +198,6 @@ function restartStream() {
   clearTimeout(reconnectTimer);
   offlineTimer      = null;
   reconnectTimer    = null;
-  lastFrameW        = 0;
   lastFrameTime     = Date.now();
   isOffline         = false;
   staticRunning     = false;
