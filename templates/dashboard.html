@@ -242,12 +242,11 @@ function tickClockV() {
 tickClockV(); setInterval(tickClockV, 1000);
 
 // ── Stream health tracking ───────────────────────────────────────────────────
-// Uses naturalWidth polling — no onerror, so normal MJPEG decode pauses
-// never falsely trigger no-signal.
-const NO_SIGNAL_TIMEOUT = 15000; // ms of no new frames before showing no-signal
-const RECONNECT_DELAY   = 6000;  // ms before reconnect attempt
+// img.onload fires on every decoded MJPEG frame. If it stops firing for
+// NO_SIGNAL_TIMEOUT ms we assume the stream is down and show no-signal.
+const NO_SIGNAL_TIMEOUT = 15000;
+const RECONNECT_DELAY   = 6000;
 
-let lastFrameW     = 0;
 let lastFrameTime  = Date.now();
 let isOfflineV     = false;
 let staticRunningV = false;
