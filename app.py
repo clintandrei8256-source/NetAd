@@ -4,7 +4,7 @@ load_dotenv()
 
 # Gevent monkey-patch must come before all other imports
 # so that socket/threading I/O is non-blocking under gunicorn gevent workers.
-from gevent import monkey; monkey.patch_all(thread=False)
+from gevent import monkey; monkey.patch_all()
 
 import cv2
 import time
