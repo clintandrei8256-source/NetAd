@@ -302,6 +302,7 @@ def generate_frames():
             try:
                 cam = cv2.VideoCapture(cam_index, cv2.CAP_FFMPEG)
                 cam.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                cam.set(cv2.CAP_PROP_FPS, 30)
                 if not cam.isOpened():
                     app.logger.warning('[generate_frames] Camera not opened, retrying in 3s')
                     time.sleep(3)
@@ -321,7 +322,7 @@ def generate_frames():
                     cv2.putText(frame, ts,    (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 220, 255), 2)
                     cv2.putText(frame, 'REC', (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0,   255), 2)
                     _, buf2 = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
-                    time.sleep(1/30)  # cap at ~30 fps to avoid flooding the browser
+
                     yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + buf2.tobytes() + b'\r\n')
             except Exception as e:
                 app.logger.error(f'[generate_frames] OpenCV error: {e}')
