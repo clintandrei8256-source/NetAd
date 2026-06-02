@@ -193,13 +193,13 @@ setInterval(updateDashboard, 5000);
         <span>RES: 1080p</span><span>FPS: 30</span><span id="cam-clock-v">--:--:--</span>
       </div>
       <button class="btn btn-sm" onclick="document.getElementById('cam-wrapper-v').requestFullscreen()">⛶ Fullscreen</button>
-      <button class="btn btn-sm" onclick="document.getElementById('viewer-feed').src='/video_feed?t='+Date.now()">↺ Refresh</button>
+      <button class="btn btn-sm" onclick="feed.src=''; setTimeout(startStreamV, 100);">↺ Refresh</button>
     </div>
   </div>
 
   <div style="position:relative;background:#000;width:100%;aspect-ratio:16/9;max-height:72vh;overflow:hidden;">
     <img id="viewer-feed"
-         style="width:100%;height:100%;object-fit:cover;display:block;" />
+         style="width:100%;height:100%;object-fit:contain;display:block;" />
 
     <div id="no-signal-v" style="display:none;position:absolute;inset:0;flex-direction:column;align-items:center;justify-content:center;background:#000;">
       <canvas id="static-canvas-v" style="position:absolute;inset:0;width:100%;height:100%;opacity:0.07;"></canvas>
@@ -241,120 +241,51 @@ function tickClockV() {
 }
 tickClockV(); setInterval(tickClockV, 1000);
 
-// ── Stream health tracking ───────────────────────────────────────────────────
-// img.onload fires on every decoded MJPEG frame. If it stops firing for
-// NO_SIGNAL_TIMEOUT ms we assume the stream is down and show no-signal.
-const NO_SIGNAL_TIMEOUT = 15000;
-const RECONNECT_DELAY   = 6000;
+// ── Stream setup ─────────────────────────────────────────────────────────────
+let knownVersion = null;
 
-let lastFrameTime  = Date.now();
-let isOfflineV     = false;
-let staticRunningV = false;
-let offlineTimerV  = null;
-let reconnectTimerV = null;
-let knownVersion   = null;
-
-const feed     = document.getElementById('viewer-feed');
-const ns       = document.getElementById('no-signal-v');
+const feed      = document.getElementById('viewer-feed');
+const ns        = document.getElementById('no-signal-v');
 const liveBadge = document.querySelector('#cam-wrapper-v .badge-success');
 
-// Start the stream immediately (no src in HTML to avoid premature onerror)
-feed.src = '/video_feed?t=' + Date.now();
+function startStreamV() {
+  fetch('/api/camera_source')
+    .then(r => r.json())
+    .then(data => {
+      const url = data.url;
+      feed.src = url + (url.includes('?') ? '&' : '?') + 't=' + Date.now();
+    })
+    .catch(() => {
+      feed.src = '/video_feed?t=' + Date.now();
+    });
+}
 
-// ── Frame arrival detector ───────────────────────────────────────────────────
-// MJPEG frames all have the same naturalWidth, so we can't use width changes.
-// Instead, use the img's onload event which fires on every decoded MJPEG frame.
 feed.onload = function() {
-  lastFrameTime = Date.now();
-  if (isOfflineV) markLiveV();
-  clearTimeout(offlineTimerV);
-  offlineTimerV = null;
+  ns.style.display   = 'none';
+  feed.style.display = 'block';
+  if (liveBadge) { liveBadge.textContent = '● LIVE'; liveBadge.className = 'badge badge-success'; liveBadge.style.animation = 'pulse 2s infinite'; }
 };
 
-// Watchdog: if onload hasn't fired within NO_SIGNAL_TIMEOUT, go offline.
-setInterval(function() {
-  if (!isOfflineV) {
-    const silence = Date.now() - lastFrameTime;
-    if (silence >= NO_SIGNAL_TIMEOUT && !offlineTimerV) {
-      offlineTimerV = setTimeout(markOfflineV, 0);
-    }
-  }
-}, 500);
-
-// ── Live / Offline state ─────────────────────────────────────────────────────
-function markLiveV() {
-  isOfflineV     = false;
-  staticRunningV = false;
-  clearTimeout(reconnectTimerV);
-  reconnectTimerV = null;
-  if (ns)        { ns.style.display   = 'none'; }
-  if (feed)      { feed.style.display = 'block'; }
-  if (liveBadge) { liveBadge.textContent = '● LIVE'; liveBadge.className = 'badge badge-success'; liveBadge.style.animation = 'pulse 2s infinite'; }
-}
-
-function markOfflineV() {
-  isOfflineV = true;
-  if (feed)      { feed.style.display = 'none'; }
-  if (ns)        { ns.style.display   = 'flex'; }
+feed.onerror = function() {
+  feed.style.display = 'none';
+  ns.style.display   = 'flex';
   if (liveBadge) { liveBadge.textContent = '✕ OFFLINE'; liveBadge.className = 'badge badge-danger'; liveBadge.style.animation = 'none'; }
-  if (!staticRunningV) startStaticV();
-  scheduleReconnectV();
-}
+  setTimeout(startStreamV, 2000);
+};
 
-function scheduleReconnectV() {
-  clearTimeout(reconnectTimerV);
-  reconnectTimerV = setTimeout(function() {
-    if (!isOfflineV) return;
-    feed.src      = '/video_feed?t=' + Date.now();
-    lastFrameTime = Date.now();
-    reconnectTimerV = setTimeout(function() {
-      if (isOfflineV) scheduleReconnectV();
-    }, NO_SIGNAL_TIMEOUT + 1000);
-  }, RECONNECT_DELAY);
-}
+startStreamV();
 
-// ── Static noise ─────────────────────────────────────────────────────────────
-function startStaticV() {
-  staticRunningV = true;
-  const canvas = document.getElementById('static-canvas-v');
-  if (!canvas) return;
-  const ctx = canvas.getContext('2d');
-  function resize() { canvas.width = canvas.offsetWidth || 640; canvas.height = canvas.offsetHeight || 360; }
-  resize(); window.addEventListener('resize', resize);
-  (function draw() {
-    if (!staticRunningV) return;
-    const w = canvas.width, h = canvas.height;
-    const img = ctx.createImageData(w, h);
-    for (let i = 0; i < img.data.length; i += 4) {
-      const v = Math.random() * 255 | 0;
-      img.data[i] = img.data[i+1] = img.data[i+2] = v; img.data[i+3] = 255;
-    }
-    ctx.putImageData(img, 0, 0); requestAnimationFrame(draw);
-  })();
-}
-
-// ── Auto-reload when admin changes camera source ─────────────────────────────
+// ── Auto-reload when admin changes camera source ──────────────────────────────
 function pollCameraVersion() {
   fetch('/api/camera_version')
     .then(r => r.json())
     .then(data => {
-      // First poll — just record the version, don't touch the stream
       if (knownVersion === null) { knownVersion = data.version; return; }
-      // Only act when the admin actually changes the camera source
       if (data.version !== knownVersion) {
-        knownVersion  = data.version;
-        isOfflineV    = false;
-        staticRunningV = false;
-        lastFrameTime = Date.now();
-        clearTimeout(offlineTimerV);
-        clearTimeout(reconnectTimerV);
-        offlineTimerV = reconnectTimerV = null;
-        if (ns)        { ns.style.display   = 'none'; }
-        if (feed)      { feed.style.display = 'block'; feed.src = '/video_feed?t=' + Date.now(); }
-        if (liveBadge) { liveBadge.textContent = '● LIVE'; liveBadge.className = 'badge badge-success'; liveBadge.style.animation = 'pulse 2s infinite'; }
+        knownVersion = data.version;
+        feed.src = '';
+        setTimeout(startStreamV, 100);
       }
-      // Do NOT touch lastFrameTime when version is unchanged —
-      // doing so resets the silence watchdog and causes a flicker loop.
     })
     .catch(() => {});
 }
