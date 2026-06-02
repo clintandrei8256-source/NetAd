@@ -90,153 +90,54 @@ function tickClock() {
 }
 tickClock(); setInterval(tickClock, 1000);
 
-// ── Stream health tracking ───────────────────────────────────────────────────
-// We detect live frames by polling the img's naturalWidth*naturalHeight
-// checksum every 500ms. If it hasn't changed for NO_SIGNAL_TIMEOUT ms
-// we assume the stream is down. This works reliably across all browsers
-// because onload does NOT fire on every MJPEG frame in Chrome.
-const NO_SIGNAL_TIMEOUT = 15000;
-const RECONNECT_DELAY   = 1000;
+const feed       = document.getElementById('real-feed');
+const ns         = document.getElementById('no-signal');
+const statusBadge = document.getElementById('status-badge');
+const liveBadge   = document.getElementById('live-badge');
 
-let lastFrameTime   = Date.now();
-let lastFrameSum    = 0;
-let isOffline       = false;
-let staticRunning   = false;
-let offlineTimer    = null;
-let reconnectTimer  = null;
+// ── Start stream ─────────────────────────────────────────────────────────────
+// Point the img directly at the camera source URL.
+// The browser handles MJPEG natively — no watchdog needed.
+// If the stream drops, onerror will catch it and reconnect.
+function startStream() {
+  fetch('/api/camera_source')
+    .then(r => r.json())
+    .then(data => {
+      const url = data.url;
+      feed.src = url + (url.includes('?') ? '&' : '?') + 't=' + Date.now();
+    })
+    .catch(() => {
+      feed.src = '/video_feed?t=' + Date.now();
+    });
+}
 
-const feed      = document.getElementById('real-feed');
-const ns        = document.getElementById('no-signal');
-const statusBadge  = document.getElementById('status-badge');
-const liveBadge    = document.getElementById('live-badge');
-
-// Start the stream immediately
-fetch('/api/camera_source')
-  .then(r => r.json())
-  .then(data => { feed.src = data.url + (data.url.includes('?') ? '&' : '?') + 't=' + Date.now(); })
-  .catch(() => { feed.src = '/video_feed?t=' + Date.now(); }); // fallback
-
-// ── Frame arrival detector ───────────────────────────────────────────────────
-// Poll naturalWidth x naturalHeight — this changes every frame on a live
-// MJPEG stream because each JPEG has slightly different dimensions or
-// because the browser updates the decoded size. We also draw to a tiny
-// canvas and sample a pixel to detect actual pixel changes.
-const _canvas = document.createElement('canvas');
-_canvas.width = 4; _canvas.height = 4;
-const _ctx = _canvas.getContext('2d');
-
-setInterval(function() {
-  if (feed.naturalWidth > 0 && feed.naturalHeight > 0) {
-    try {
-      _ctx.drawImage(feed, 0, 0, 4, 4);
-      const px = _ctx.getImageData(0, 0, 4, 4).data;
-      // Sum a few pixels as a cheap frame fingerprint
-      const sum = px[0] + px[5] + px[10] + px[15] + px[20] + px[25];
-      if (sum !== lastFrameSum) {
-        lastFrameSum = sum;
-        lastFrameTime = Date.now();
-        if (isOffline) markLive();
-        clearTimeout(offlineTimer);
-        offlineTimer = null;
-      }
-    } catch(e) {} // cross-origin canvas taint — fallback to naturalWidth check
-  }
-
-  if (!isOffline) {
-    const silence = Date.now() - lastFrameTime;
-    if (silence >= NO_SIGNAL_TIMEOUT && !offlineTimer) {
-      offlineTimer = setTimeout(markOffline, 0);
-    }
-  }
-}, 500);
-
-// ── Live / Offline state ─────────────────────────────────────────────────────
-function markLive() {
-  isOffline = false;
-  staticRunning = false;
-  clearTimeout(reconnectTimer);
-  reconnectTimer = null;
-
-  if (ns)          ns.style.display        = 'none';
-  if (feed)        feed.style.display      = 'block';
+feed.onload = function() {
+  // Stream connected and first frame arrived
+  ns.style.display   = 'none';
+  feed.style.display = 'block';
   if (statusBadge) { statusBadge.textContent = '● Live';    statusBadge.className = 'badge badge-success'; }
   if (liveBadge)   { liveBadge.textContent   = '● LIVE';    liveBadge.className   = 'badge badge-success'; liveBadge.style.animation = 'pulse 2s infinite'; }
-}
+};
 
-function markOffline() {
-  isOffline = true;
-
-  if (feed)        feed.style.display      = 'none';
-  if (ns)          ns.style.display        = 'flex';
+feed.onerror = function() {
+  // Stream genuinely dropped — show no signal and reconnect
+  feed.style.display = 'none';
+  ns.style.display   = 'flex';
   if (statusBadge) { statusBadge.textContent = '✕ Offline'; statusBadge.className = 'badge badge-danger'; }
   if (liveBadge)   { liveBadge.textContent   = '✕ OFFLINE'; liveBadge.className   = 'badge badge-danger'; liveBadge.style.animation = 'none'; }
+  // Retry after 2 seconds
+  setTimeout(startStream, 2000);
+};
 
-  if (!staticRunning) startStatic();
+startStream();
 
-  // Schedule a reconnect attempt
-  scheduleReconnect();
-}
-
-function scheduleReconnect() {
-  clearTimeout(reconnectTimer);
-  reconnectTimer = setTimeout(function() {
-    if (!isOffline) return;
-    // Reload the stream; set lastFrameTime so the watchdog gives a full
-    // NO_SIGNAL_TIMEOUT window for the first frame to arrive
-    fetch('/api/camera_source')
-      .then(r => r.json())
-      .then(data => { feed.src = data.url + (data.url.includes('?') ? '&' : '?') + 't=' + Date.now(); })
-      .catch(() => { feed.src = '/video_feed?t=' + Date.now(); });
-    lastFrameTime = Date.now();
-    // If still no frames after the full timeout, try again
-    reconnectTimer = setTimeout(function() {
-      if (isOffline) scheduleReconnect();
-    }, NO_SIGNAL_TIMEOUT + 1000);
-  }, RECONNECT_DELAY);
-}
-
-// ── Static noise canvas ──────────────────────────────────────────────────────
-function startStatic() {
-  staticRunning = true;
-  const canvas = document.getElementById('static-canvas');
-  if (!canvas) return;
-  const ctx = canvas.getContext('2d');
-  function resize() { canvas.width = canvas.offsetWidth || 640; canvas.height = canvas.offsetHeight || 360; }
-  resize(); window.addEventListener('resize', resize);
-  (function draw() {
-    if (!staticRunning) return;
-    const w = canvas.width, h = canvas.height;
-    const img = ctx.createImageData(w, h);
-    for (let i = 0; i < img.data.length; i += 4) {
-      const v = Math.random() * 255 | 0;
-      img.data[i] = img.data[i+1] = img.data[i+2] = v; img.data[i+3] = 255;
-    }
-    ctx.putImageData(img, 0, 0); requestAnimationFrame(draw);
-  })();
-}
-
-// ── Manual refresh ───────────────────────────────────────────────────────────
+// ── Manual refresh ────────────────────────────────────────────────────────────
 function restartStream() {
-  clearTimeout(offlineTimer);
-  clearTimeout(reconnectTimer);
-  offlineTimer      = null;
-  reconnectTimer    = null;
-  lastFrameTime     = Date.now();
-  isOffline         = false;
-  staticRunning     = false;
-
-  // Briefly hide to force browser to drop the old connection
   feed.src = '';
-  setTimeout(function() {
-    markLive();
-    fetch('/api/camera_source')
-      .then(r => r.json())
-      .then(data => { feed.src = data.url + (data.url.includes('?') ? '&' : '?') + 't=' + Date.now(); })
-      .catch(() => { feed.src = '/video_feed?t=' + Date.now(); });
-  }, 100);
+  setTimeout(startStream, 100);
 }
 
-// ── Fullscreen ───────────────────────────────────────────────────────────────
+// ── Fullscreen ────────────────────────────────────────────────────────────────
 function toggleFullscreen() {
   const el = document.getElementById('cam-wrapper');
   if (!document.fullscreenElement) el.requestFullscreen && el.requestFullscreen();
