@@ -57,7 +57,7 @@
   <div style="padding:8px 16px;background:var(--bg2);display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;font-family:var(--font-mono);font-size:10px;color:var(--muted);">
     <span>LOCATION: CCTV 1</span>
     <span>CODEC: H.264 · MJPEG</span>
-    <span>STREAM: /video_feed</span>
+    <span>STREAM: DIRECT</span>
   </div>
 </div>
 
@@ -93,8 +93,8 @@ tickClock(); setInterval(tickClock, 1000);
 // ── Stream health tracking ───────────────────────────────────────────────────
 // img.onload fires on every decoded MJPEG frame. If it stops firing for
 // NO_SIGNAL_TIMEOUT ms we assume the stream is down and show no-signal.
-const NO_SIGNAL_TIMEOUT = 5000;
-const RECONNECT_DELAY   = 2000;
+const NO_SIGNAL_TIMEOUT = 15000;
+const RECONNECT_DELAY   = 1000;
 
 let lastFrameTime  = Date.now();
 let isOffline      = false;
@@ -108,7 +108,10 @@ const statusBadge  = document.getElementById('status-badge');
 const liveBadge    = document.getElementById('live-badge');
 
 // Start the stream immediately
-feed.src = '/video_feed?t=' + Date.now();
+fetch('/api/camera_source')
+  .then(r => r.json())
+  .then(data => { feed.src = data.url + (data.url.includes('?') ? '&' : '?') + 't=' + Date.now(); })
+  .catch(() => { feed.src = '/video_feed?t=' + Date.now(); }); // fallback
 
 // ── Frame arrival detector ───────────────────────────────────────────────────
 // MJPEG frames all have the same naturalWidth, so we use onload instead —
@@ -163,7 +166,10 @@ function scheduleReconnect() {
     if (!isOffline) return;
     // Reload the stream; set lastFrameTime so the watchdog gives a full
     // NO_SIGNAL_TIMEOUT window for the first frame to arrive
-    feed.src      = '/video_feed?t=' + Date.now();
+    fetch('/api/camera_source')
+      .then(r => r.json())
+      .then(data => { feed.src = data.url + (data.url.includes('?') ? '&' : '?') + 't=' + Date.now(); })
+      .catch(() => { feed.src = '/video_feed?t=' + Date.now(); });
     lastFrameTime = Date.now();
     // If still no frames after the full timeout, try again
     reconnectTimer = setTimeout(function() {
@@ -206,7 +212,10 @@ function restartStream() {
   feed.src = '';
   setTimeout(function() {
     markLive();
-    feed.src = '/video_feed?t=' + Date.now();
+    fetch('/api/camera_source')
+      .then(r => r.json())
+      .then(data => { feed.src = data.url + (data.url.includes('?') ? '&' : '?') + 't=' + Date.now(); })
+      .catch(() => { feed.src = '/video_feed?t=' + Date.now(); });
   }, 100);
 }
 
