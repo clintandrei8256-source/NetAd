@@ -93,8 +93,8 @@ tickClock(); setInterval(tickClock, 1000);
 // ── Stream health tracking ───────────────────────────────────────────────────
 // img.onload fires on every decoded MJPEG frame. If it stops firing for
 // NO_SIGNAL_TIMEOUT ms we assume the stream is down and show no-signal.
-const NO_SIGNAL_TIMEOUT = 15000;
-const RECONNECT_DELAY   = 6000;
+const NO_SIGNAL_TIMEOUT = 5000;
+const RECONNECT_DELAY   = 2000;
 
 let lastFrameTime  = Date.now();
 let isOffline      = false;
